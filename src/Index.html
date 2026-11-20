@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <!-- Página de prueba del backend. El Integrante 2 la reemplaza por la interfaz final. -->
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:720px;margin:auto;padding:16px}
+    input,select,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+    pre{background:#f3f4f6;padding:8px;overflow:auto;font-size:12px}
+  </style>
+</head>
+<body>
+  <h2>Control Vehicular — Prueba de backend</h2>
+  <div id="sesion">Validando cuenta…</div>
+  <select id="caseta"></select>
+  <input id="placa" placeholder="Placa (ej. XYZ-123-4)">
+  <button onclick="call('registrarEntrada',{placa:v('placa'),casetaId:v('caseta')})">Registrar entrada</button>
+  <button onclick="call('registrarSalida',{placa:v('placa'),casetaId:v('caseta')})">Registrar salida</button>
+  <button onclick="call('vehiculosDentro')">Vehículos dentro</button>
+  <button onclick="call('obtenerReporte',{})">Reporte</button>
+  <button onclick="descargar('xlsx')">Exportar Excel</button>
+  <button onclick="descargar('pdf')">Exportar PDF</button>
+  <pre id="out"></pre>
+<script>
+  const v = id => document.getElementById(id).value;
+  const out = o => document.getElementById('out').textContent = JSON.stringify(o, null, 2);
+  function call(fn, ...args){ google.script.run.withSuccessHandler(out).withFailureHandler(out)[fn](...args); }
+  function descargar(fmt){
+    google.script.run.withSuccessHandler(r=>{
+      if(!r.ok) return out(r);
+      const a=document.createElement('a');
+      a.href='data:'+r.data.mime+';base64,'+r.data.base64; a.download=r.data.nombre; a.click();
+    }).exportarMovimientos({}, fmt);
+  }
+  google.script.run.withSuccessHandler(r=>{
+    document.getElementById('sesion').textContent = r.ok ? `${r.data.nombre} — ${r.data.rol}` : r.error;
+    google.script.run.withSuccessHandler(c=>{
+      if(c.ok) document.getElementById('caseta').innerHTML = c.data.map(x=>`<option value="${x.ID}">${x.Nombre}</option>`).join('');
+    }).listarCasetasActivas();
+  }).login();
+</script>
+</body>
+</html>
