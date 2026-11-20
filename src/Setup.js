@@ -26,10 +26,12 @@ function setupInicial() {
   hoja_('EMPLEADOS').getRange('D2:D').setDataValidation(lista(['Docente', 'Administrativo']));
   hoja_('VEHICULOS').getRange('F2:F').setDataValidation(lista(TIPOS_USUARIO));
   hoja_('MOVIMIENTOS').getRange('D2:D').setDataValidation(lista(TIPOS_USUARIO));
-  hoja_('MOVIMIENTOS').getRange('N2:N').setDataValidation(lista(['DENTRO', 'SALIO']));
+  hoja_('MOVIMIENTOS').getRange('N2:N').setDataValidation(lista(Object.values(ESTADOS)));
 
   // Protege la bitácora con advertencia (el script corre como el usuario y necesita escribir en ella)
-  hoja_('BITACORA').protect().setDescription('Bitácora protegida').setWarningOnly(true);
+  if (hoja_('BITACORA').getProtections(SpreadsheetApp.ProtectionType.SHEET).length === 0) {
+    hoja_('BITACORA').protect().setDescription('Bitácora protegida').setWarningOnly(true);
+  }
 
   // Datos semilla
   if (leerTodos_('CASETAS').length === 0) {
@@ -60,6 +62,9 @@ function onOpen() {
     .addItem('Cargar datos de prueba', 'cargarDatosPrueba')
     .addSeparator()
     .addItem('Dar de alta usuario', 'altaUsuarioMenu')
+    .addSeparator()
+    .addItem('Activar cierre nocturno automático', 'instalarCierreNocturno')
+    .addItem('Ejecutar cierre nocturno ahora', 'cierreNocturno')
     .addToUi();
 }
 

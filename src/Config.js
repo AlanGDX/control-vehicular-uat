@@ -10,8 +10,14 @@ const CONFIG = {
   ZONA_HORARIA: 'America/Monterrey',
   NOMBRE_SISTEMA: 'Control de Acceso Vehicular UAT CUTM Sur',
   // Correo del primer administrador (se crea con setupInicial)
-  ADMIN_INICIAL: 'a2221330007@alumnos.uat.edu.mx',
+  ADMIN_INICIAL: 'admin@uat.edu.mx',
+  // Horas dentro del campus a partir de las cuales se marca alerta (posible salida no registrada)
+  HORAS_ALERTA_ESTANCIA: 12,
+  // Hora (0-23) del cierre automático nocturno de movimientos abiertos
+  HORA_CIERRE_NOCTURNO: 23,
 };
+
+const ESTADOS = { DENTRO: 'DENTRO', SALIO: 'SALIO', SIN_SALIDA: 'SIN SALIDA' };
 
 const ROLES = {
   ADMIN: 'Administrador',

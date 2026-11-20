@@ -16,7 +16,15 @@ function registrarEntrada(d) {
     const caseta = casetaActiva_(d.casetaId);
 
     const abierto = movimientoAbierto_(placa);
-    if (abierto) throw new Error('El vehículo ' + placa + ' ya está dentro del campus (entró por ' + abierto.CasetaEntrada + ' el ' + abierto.FechaHoraEntrada + ').');
+    if (abierto) {
+      // Entrada abierta del mismo día: probable doble registro -> error.
+      // De otro día: la salida no se registró -> se cierra como SIN SALIDA y se continúa.
+      if (String(abierto.FechaHoraEntrada).substring(0, 10) === ahora_().substring(0, 10)) {
+        throw new Error('El vehículo ' + placa + ' ya está dentro del campus (entró por ' + abierto.CasetaEntrada + ' el ' + abierto.FechaHoraEntrada.replace('T', ' ') + '). Registre primero su salida.');
+      }
+      marcarSinSalida_(abierto, 'Cerrado al registrar nueva entrada');
+      registrarBitacora_(u.Correo, u.Rol, 'SIN_SALIDA', 'Operacion', placa + ' (entrada del ' + abierto.FechaHoraEntrada + ')');
+    }
 
     const veh = leerTodos_('VEHICULOS').find(v => v.Placa === placa);
     if (veh && String(veh.Activo).toUpperCase() === 'FALSE') throw new Error('El vehículo ' + placa + ' está dado de baja. Acceso no autorizado.');
@@ -49,7 +57,7 @@ function registrarSalida(d) {
   return api_('operacion', (u) => conBloqueo_(() => {
     const caseta = casetaActiva_(d.casetaId);
     let mov = d.movimientoId ? buscarPorId_('MOVIMIENTOS', d.movimientoId) : movimientoAbierto_(normalizarPlaca(d.placa));
-    if (!mov || mov.Estado !== 'DENTRO') throw new Error('No hay una entrada abierta para ese vehículo.');
+    if (!mov || mov.Estado !== ESTADOS.DENTRO) throw new Error('No hay una entrada abierta para ese vehículo.');
     const r = actualizar_('MOVIMIENTOS', mov.ID, {
       CasetaSalidaID: caseta.ID,
       CasetaSalida: caseta.Nombre,
@@ -62,11 +70,82 @@ function registrarSalida(d) {
   }));
 }
 
-/** Panel de "vehículos dentro" */
-function vehiculosDentro() {
-  return api_('consulta', () =>
-    limpiar_(leerTodos_('MOVIMIENTOS').filter(m => m.Estado === 'DENTRO'))
-      .sort((a, b) => String(b.FechaHoraEntrada).localeCompare(String(a.FechaHoraEntrada))));
+/**
+ * Panel de "vehículos dentro".
+ * Cada fila incluye horasDentro y alerta=true si supera CONFIG.HORAS_ALERTA_ESTANCIA
+ * (posible salida no registrada). Las alertas van primero.
+ * @param {string} casetaId opcional: solo los que entraron por esa caseta
+ */
+function vehiculosDentro(casetaId) {
+  return api_('consulta', () => dentroConAlertas_(casetaId));
+}
+
+function dentroConAlertas_(casetaId) {
+  const ahora = new Date(ahora_()).getTime();
+  return limpiar_(leerTodos_('MOVIMIENTOS').filter(m =>
+      m.Estado === ESTADOS.DENTRO && (!casetaId || m.CasetaEntradaID === casetaId)))
+    .map(m => {
+      const horas = (ahora - new Date(m.FechaHoraEntrada).getTime()) / 3600000;
+      return Object.assign(m, {
+        horasDentro: Math.round(horas * 10) / 10,
+        alerta: horas >= CONFIG.HORAS_ALERTA_ESTANCIA,
+      });
+    })
+    .sort((a, b) => (b.alerta - a.alerta) || String(b.FechaHoraEntrada).localeCompare(String(a.FechaHoraEntrada)));
+}
+
+/**
+ * Cierre de turno: el operador revisa los vehículos que siguen dentro (de su caseta)
+ * antes de entregar el turno. Queda registrado en la bitácora.
+ * @param {Object} d { casetaId, observaciones? }
+ * @return { caseta, pendientes:[...], totalPendientes, totalAlertas }
+ */
+function cierreTurno(d) {
+  return api_('operacion', (u) => {
+    const caseta = casetaActiva_(d.casetaId);
+    const pendientes = dentroConAlertas_(caseta.ID);
+    const alertas = pendientes.filter(p => p.alerta).length;
+    registrarBitacora_(u.Correo, u.Rol, 'CIERRE_TURNO', 'Operacion',
+      caseta.Nombre + ': ' + pendientes.length + ' dentro, ' + alertas + ' con alerta' +
+      (d.observaciones ? '. Obs: ' + d.observaciones : ''));
+    return { caseta: caseta.Nombre, pendientes: pendientes, totalPendientes: pendientes.length, totalAlertas: alertas };
+  });
+}
+
+/* ========================= Cierre nocturno automático ========================= */
+
+/**
+ * Marca como SIN SALIDA todos los movimientos que siguen DENTRO.
+ * Lo ejecuta el activador diario (como propietario) o el menú de la hoja.
+ */
+function cierreNocturno() {
+  return conBloqueo_(() => {
+    const abiertos = leerTodos_('MOVIMIENTOS').filter(m => m.Estado === ESTADOS.DENTRO);
+    abiertos.forEach(m => marcarSinSalida_(m, 'Cerrado automáticamente (cierre nocturno)'));
+    registrarBitacora_('SISTEMA', 'Automático', 'CIERRE_NOCTURNO', 'Operacion',
+      abiertos.length + ' movimientos marcados como SIN SALIDA' +
+      (abiertos.length ? ': ' + abiertos.map(m => m.Placa).join(', ') : ''));
+    return abiertos.length;
+  });
+}
+
+/** Crea (una sola vez) el activador diario del cierre nocturno. Ejecutar desde el menú o el editor. */
+function instalarCierreNocturno() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'cierreNocturno')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('cierreNocturno').timeBased()
+    .atHour(CONFIG.HORA_CIERRE_NOCTURNO).everyDays(1)
+    .inTimezone(CONFIG.ZONA_HORARIA).create();
+  const msg = 'Cierre nocturno activado: todos los días entre las ' + CONFIG.HORA_CIERRE_NOCTURNO + ':00 y ' + CONFIG.HORA_CIERRE_NOCTURNO + ':59.';
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* ejecutado desde el editor */ }
+  return msg;
+}
+
+/** Cierra un movimiento abierto sin salida registrada (no llena FechaHoraSalida: no hubo salida real). */
+function marcarSinSalida_(mov, motivo) {
+  const obs = mov.Observaciones ? mov.Observaciones + ' | ' + motivo : motivo;
+  return actualizar_('MOVIMIENTOS', mov.ID, { Estado: ESTADOS.SIN_SALIDA, Observaciones: obs });
 }
 
 /** Casetas activas para el selector del operador */
@@ -76,7 +155,7 @@ function listarCasetasActivas() {
 }
 
 function movimientoAbierto_(placa) {
-  return leerTodos_('MOVIMIENTOS').find(m => m.Placa === placa && m.Estado === 'DENTRO') || null;
+  return leerTodos_('MOVIMIENTOS').find(m => m.Placa === placa && m.Estado === ESTADOS.DENTRO) || null;
 }
 
 function casetaActiva_(id) {

@@ -35,7 +35,8 @@ function obtenerReporte(filtros) {
     const rows = filtrarMovimientos_(filtros);
     const porHora = Array(24).fill(0);
     const porDia = {}, porCaseta = {}, porTipo = {}, porPlaca = {};
-    let salidas = 0, minutosTotal = 0;
+    const sinSalidaCaseta = {}, sinSalidaDia = {};
+    let salidas = 0, minutosTotal = 0, sinSalida = 0;
 
     rows.forEach(m => {
       const fh = String(m.FechaHoraEntrada);
@@ -50,18 +51,30 @@ function obtenerReporte(filtros) {
         salidas++;
         minutosTotal += (new Date(m.FechaHoraSalida) - new Date(m.FechaHoraEntrada)) / 60000;
       }
+      if (m.Estado === ESTADOS.SIN_SALIDA) {
+        sinSalida++;
+        // Se atribuye a la caseta de entrada: la salida pudo ocurrir por cualquiera
+        sinSalidaCaseta[m.CasetaEntrada] = (sinSalidaCaseta[m.CasetaEntrada] || 0) + 1;
+        sinSalidaDia[dia] = (sinSalidaDia[dia] || 0) + 1;
+      }
     });
+    const dentro = dentroConAlertas_();
 
     const horaPico = porHora.indexOf(Math.max.apply(null, porHora));
     return {
       kpis: {
         totalEntradas: rows.length,
         totalSalidas: salidas,
-        dentroAhora: leerTodos_('MOVIMIENTOS').filter(m => m.Estado === 'DENTRO').length,
+        dentroAhora: dentro.length,
+        alertasEstancia: dentro.filter(m => m.alerta).length,
         vehiculosUnicos: Object.keys(porPlaca).length,
         horaPico: rows.length ? (('0' + horaPico).slice(-2) + ':00') : '-',
         estanciaPromedioMin: salidas ? Math.round(minutosTotal / salidas) : 0,
+        salidasNoRegistradas: sinSalida,
+        porcentajeSinSalida: rows.length ? Math.round(sinSalida * 1000 / rows.length) / 10 : 0,
       },
+      sinSalidaPorCaseta: Object.keys(sinSalidaCaseta).map(k => ({ caseta: k, total: sinSalidaCaseta[k] })),
+      sinSalidaPorDia: Object.keys(sinSalidaDia).sort().map(d => ({ dia: d, total: sinSalidaDia[d] })),
       porHora: porHora.map((v, h) => ({ hora: ('0' + h).slice(-2) + ':00', total: v })),
       porDia: Object.keys(porDia).sort().map(d => ({ dia: d, total: porDia[d] })),
       porCaseta: Object.keys(porCaseta).map(k => ({ caseta: k, total: porCaseta[k] })),
