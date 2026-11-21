@@ -1,0 +1,471 @@
+<!-- ViewCatalogos.html — Catálogos Maestros, Pase Vehicular QR e Impresión, y Gestión de Usuarios -->
+<section id="view-catalogos" data-view="catalogos" hidden aria-label="Catálogos maestros y gestión de usuarios">
+
+  <!-- Encabezado -->
+  <div class="card p-4 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2">
+        <i data-lucide="database" class="w-5 h-5 text-accent"></i>
+        <h2 class="font-display font-extrabold text-navy text-lg sm:text-xl leading-tight">Catálogos Maestros</h2>
+      </div>
+      <p id="cat-updated" class="mono text-[11px] text-ink-muted mt-1">Padrón institucional y pases vehiculares QR · UAT CUTM Sur</p>
+    </div>
+    <button id="btn-ir-usuarios" type="button" data-perm="usuarios" hidden class="btn btn-neutral btn-sm w-full sm:w-auto">
+      <i data-lucide="users" class="w-4 h-4 text-navy"></i><span>Gestión de Usuarios</span>
+    </button>
+  </div>
+
+  <!-- ===================== Tarjeta principal de Catálogos ===================== -->
+  <div class="card overflow-hidden mb-6">
+    <!-- Pestañas de los 5 catálogos -->
+    <div class="px-2 sm:px-4 pt-2 border-b border-line bg-mist flex items-center gap-1 overflow-x-auto scroll-thin" role="tablist" aria-label="Catálogos disponibles">
+      <button id="cat-tab-vehiculos" type="button" role="tab" aria-selected="true" data-cat-tab="vehiculos"
+              class="flex items-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-t border-b-2 border-accent bg-white text-navy whitespace-nowrap shrink-0">
+        <i data-lucide="car-front" class="w-4 h-4 text-accent"></i>
+        <span>Vehículos</span>
+        <span id="cat-count-vehiculos" class="badge badge-count">0</span>
+      </button>
+      <button id="cat-tab-empleados" type="button" role="tab" aria-selected="false" data-cat-tab="empleados"
+              class="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-t border-b-2 border-transparent text-ink-muted hover:text-navy whitespace-nowrap shrink-0">
+        <i data-lucide="briefcase" class="w-4 h-4"></i>
+        <span>Empleados</span>
+        <span id="cat-count-empleados" class="badge badge-info">0</span>
+      </button>
+      <button id="cat-tab-estudiantes" type="button" role="tab" aria-selected="false" data-cat-tab="estudiantes"
+              class="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-t border-b-2 border-transparent text-ink-muted hover:text-navy whitespace-nowrap shrink-0">
+        <i data-lucide="graduation-cap" class="w-4 h-4"></i>
+        <span>Estudiantes</span>
+        <span id="cat-count-estudiantes" class="badge badge-info">0</span>
+      </button>
+      <button id="cat-tab-visitantes" type="button" role="tab" aria-selected="false" data-cat-tab="visitantes"
+              class="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-t border-b-2 border-transparent text-ink-muted hover:text-navy whitespace-nowrap shrink-0">
+        <i data-lucide="user-check" class="w-4 h-4"></i>
+        <span>Visitantes</span>
+        <span id="cat-count-visitantes" class="badge badge-info">0</span>
+      </button>
+      <button id="cat-tab-casetas" type="button" role="tab" aria-selected="false" data-cat-tab="casetas"
+              class="flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-t border-b-2 border-transparent text-ink-muted hover:text-navy whitespace-nowrap shrink-0">
+        <i data-lucide="map-pin" class="w-4 h-4"></i>
+        <span>Casetas</span>
+        <span id="cat-count-casetas" class="badge badge-info">0</span>
+      </button>
+    </div>
+
+    <!-- Barra de herramientas -->
+    <div class="p-4 border-b border-line flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1">
+        <div class="relative flex-1 max-w-md">
+          <label for="cat-search" class="sr-only">Buscar en catálogo</label>
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none"></i>
+          <input id="cat-search" class="field !pl-9" type="search" placeholder="Buscar por placa, nombre, matrícula…" autocomplete="off" spellcheck="false">
+        </div>
+        <div id="cat-estado-wrap" class="sm:w-44">
+          <label for="cat-estado-filter" class="sr-only">Filtrar por estado</label>
+          <select id="cat-estado-filter" class="field">
+            <option value="">Todos los estados</option>
+            <option value="activos">Solo activos</option>
+            <option value="inactivos">Inactivos</option>
+          </select>
+        </div>
+        <button id="btn-cat-refresh" type="button" class="btn btn-neutral btn-icon sm:!w-auto sm:!px-3" title="Actualizar catálogo" aria-label="Actualizar catálogo">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i><span class="hidden sm:inline lg:hidden xl:inline">Actualizar</span>
+        </button>
+      </div>
+      <button id="btn-cat-nuevo" type="button" class="btn btn-primary !min-h-[44px] !text-[14px] w-full lg:w-auto shrink-0" hidden>
+        <i data-lucide="plus" class="w-4 h-4"></i><span id="btn-cat-nuevo-label">+ Nuevo</span>
+      </button>
+    </div>
+
+    <!-- Tabla responsiva del catálogo -->
+    <div class="w-full overflow-x-auto">
+      <table class="w-full text-left border-collapse min-w-[720px]">
+        <thead id="cat-thead"></thead>
+        <tbody id="cat-tbody" class="divide-y divide-line text-sm"></tbody>
+      </table>
+    </div>
+    <div class="px-4 py-2.5 bg-mist border-t border-line flex flex-wrap items-center justify-between gap-2 mono text-[11px] text-ink-muted">
+      <span id="cat-footer-count">0 registros</span>
+      <span id="cat-perm-hint"></span>
+    </div>
+  </div>
+
+  <!-- ===================== Gestión de Usuarios (solo permiso 'usuarios') ===================== -->
+  <section id="sec-usuarios" class="card overflow-hidden" data-perm="usuarios" hidden aria-labelledby="titulo-usuarios">
+    <div class="p-4 border-b border-line bg-mist flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <i data-lucide="users" class="w-5 h-5 text-navy"></i>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 id="titulo-usuarios" class="font-display font-bold text-navy text-base sm:text-lg">Gestión de Usuarios</h3>
+            <span id="usr-count" class="badge badge-count">0</span>
+          </div>
+          <p id="usr-updated" class="mono text-[11px] text-ink-muted">Cuentas institucionales, roles y caseta asignada</p>
+        </div>
+      </div>
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div class="relative sm:w-60">
+          <label for="usr-search" class="sr-only">Buscar usuario</label>
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none"></i>
+          <input id="usr-search" class="field !pl-9" type="search" placeholder="Filtrar usuarios…" autocomplete="off">
+        </div>
+        <button id="btn-usr-refresh" type="button" class="btn btn-neutral btn-icon sm:!w-auto sm:!px-3" title="Actualizar usuarios" aria-label="Actualizar usuarios">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+        <button id="btn-usr-nuevo" type="button" class="btn btn-secondary">
+          <i data-lucide="user-plus" class="w-4 h-4"></i><span>+ Nuevo Usuario</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="w-full overflow-x-auto">
+      <table class="w-full text-left border-collapse min-w-[780px]">
+        <thead>
+          <tr class="border-b border-line bg-mist/60">
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Correo</th>
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Nombre</th>
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Rol</th>
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Caseta asignada</th>
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Estado</th>
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Alta / Último acceso</th>
+            <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="usr-tbody" class="divide-y divide-line text-sm"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== Modal: Alta / Edición de Catálogo ===================== -->
+  <div id="modal-catalogo" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-catalogo-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <div class="flex items-center gap-2">
+          <i data-lucide="database" class="w-5 h-5"></i>
+          <h3 id="modal-catalogo-title" class="font-display font-bold">Registro de catálogo</h3>
+        </div>
+        <button type="button" class="w-10 h-10 flex items-center justify-center" data-close-modal="modal-catalogo" aria-label="Cerrar formulario">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="form-catalogo" class="p-4 space-y-4" novalidate>
+        <input id="cat-f-id" type="hidden">
+
+        <!-- Vehículos -->
+        <div id="form-sec-vehiculos" class="space-y-3" hidden>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="veh-f-placa" class="field-label">Placa *</label>
+              <input id="veh-f-placa" class="field mono uppercase font-bold" type="text" maxlength="12" placeholder="XYZ1234" autocomplete="off" spellcheck="false">
+              <p class="mt-1 mono text-[11px] text-ink-muted">5 a 8 caracteres alfanuméricos sin espacios ni guiones.</p>
+            </div>
+            <div>
+              <label for="veh-f-tipo-titular" class="field-label">Tipo de titular *</label>
+              <select id="veh-f-tipo-titular" class="field">
+                <option value="Estudiante">Estudiante</option>
+                <option value="Docente">Docente</option>
+                <option value="Administrativo">Administrativo</option>
+                <option value="Visitante">Visitante</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="veh-f-titular-id" id="veh-f-titular-label" class="field-label">Titular *</label>
+            <select id="veh-f-titular-id" class="field">
+              <option value="">Cargando titulares…</option>
+            </select>
+            <p id="veh-f-titular-hint" class="mt-1 text-xs text-ink-muted"></p>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label for="veh-f-marca" class="field-label">Marca</label>
+              <input id="veh-f-marca" class="field" type="text" maxlength="50" placeholder="Nissan, VW…">
+            </div>
+            <div>
+              <label for="veh-f-modelo" class="field-label">Modelo</label>
+              <input id="veh-f-modelo" class="field" type="text" maxlength="50" placeholder="Versa, Jetta…">
+            </div>
+            <div>
+              <label for="veh-f-color" class="field-label">Color</label>
+              <input id="veh-f-color" class="field" type="text" maxlength="30" placeholder="Gris, Blanco…">
+            </div>
+          </div>
+          <label class="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+            <input id="veh-f-activo" type="checkbox" class="w-5 h-5 accent-[#0F2B46]" checked>
+            <span class="text-sm font-semibold text-ink">Vehículo activo (autorizado para ingresar)</span>
+          </label>
+        </div>
+
+        <!-- Empleados -->
+        <div id="form-sec-empleados" class="space-y-3" hidden>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="emp-f-num" class="field-label">Número de empleado *</label>
+              <input id="emp-f-num" class="field mono" type="text" maxlength="30" placeholder="1001">
+            </div>
+            <div>
+              <label for="emp-f-tipo" class="field-label">Tipo *</label>
+              <select id="emp-f-tipo" class="field">
+                <option value="Docente">Docente</option>
+                <option value="Administrativo">Administrativo</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="emp-f-nombre" class="field-label">Nombre completo *</label>
+            <input id="emp-f-nombre" class="field" type="text" maxlength="120" placeholder="Nombre y apellidos">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="emp-f-depto" class="field-label">Departamento</label>
+              <input id="emp-f-depto" class="field" type="text" maxlength="100" placeholder="Sistemas, Servicios Escolares…">
+            </div>
+            <div>
+              <label for="emp-f-telefono" class="field-label">Teléfono (10 dígitos)</label>
+              <input id="emp-f-telefono" class="field mono" type="tel" inputmode="numeric" maxlength="14" placeholder="8341234567">
+            </div>
+          </div>
+          <div>
+            <label for="emp-f-correo" class="field-label">Correo electrónico</label>
+            <input id="emp-f-correo" class="field" type="email" maxlength="120" placeholder="nombre@docentes.uat.edu.mx">
+          </div>
+          <label class="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+            <input id="emp-f-activo" type="checkbox" class="w-5 h-5 accent-[#0F2B46]" checked>
+            <span class="text-sm font-semibold text-ink">Empleado activo</span>
+          </label>
+        </div>
+
+        <!-- Estudiantes -->
+        <div id="form-sec-estudiantes" class="space-y-3" hidden>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="est-f-matricula" class="field-label">Matrícula *</label>
+              <input id="est-f-matricula" class="field mono" type="text" maxlength="30" placeholder="a2213330001">
+            </div>
+            <div>
+              <label for="est-f-telefono" class="field-label">Teléfono (10 dígitos)</label>
+              <input id="est-f-telefono" class="field mono" type="tel" inputmode="numeric" maxlength="14" placeholder="8341234567">
+            </div>
+          </div>
+          <div>
+            <label for="est-f-nombre" class="field-label">Nombre completo *</label>
+            <input id="est-f-nombre" class="field" type="text" maxlength="120" placeholder="Nombre y apellidos">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="est-f-carrera" class="field-label">Carrera</label>
+              <input id="est-f-carrera" class="field" type="text" maxlength="100" placeholder="ISC, Derecho…">
+            </div>
+            <div>
+              <label for="est-f-correo" class="field-label">Correo institucional</label>
+              <input id="est-f-correo" class="field" type="email" maxlength="120" placeholder="matricula@alumnos.uat.edu.mx">
+            </div>
+          </div>
+          <label class="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+            <input id="est-f-activo" type="checkbox" class="w-5 h-5 accent-[#0F2B46]" checked>
+            <span class="text-sm font-semibold text-ink">Estudiante activo</span>
+          </label>
+        </div>
+
+        <!-- Visitantes -->
+        <div id="form-sec-visitantes" class="space-y-3" hidden>
+          <div>
+            <label for="vis-f-nombre" class="field-label">Nombre completo *</label>
+            <input id="vis-f-nombre" class="field" type="text" maxlength="120" placeholder="Nombre del visitante o proveedor">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="vis-f-identificacion" class="field-label">Identificación *</label>
+              <input id="vis-f-identificacion" class="field" type="text" maxlength="80" placeholder="INE, licencia, gafete…">
+            </div>
+            <div>
+              <label for="vis-f-telefono" class="field-label">Teléfono (10 dígitos)</label>
+              <input id="vis-f-telefono" class="field mono" type="tel" inputmode="numeric" maxlength="14" placeholder="8341234567">
+            </div>
+          </div>
+          <div>
+            <label for="vis-f-motivo" class="field-label">Motivo</label>
+            <input id="vis-f-motivo" class="field" type="text" maxlength="180" placeholder="Trámite, entrega de paquetería, reunión…">
+          </div>
+        </div>
+
+        <!-- Casetas -->
+        <div id="form-sec-casetas" class="space-y-3" hidden>
+          <div>
+            <label for="cas-f-nombre" class="field-label">Nombre de la caseta *</label>
+            <input id="cas-f-nombre" class="field" type="text" maxlength="100" placeholder="Caseta 1 - Acceso Principal">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="cas-f-ubicacion" class="field-label">Ubicación</label>
+              <input id="cas-f-ubicacion" class="field" type="text" maxlength="120" placeholder="Acceso Norte, Av. Principal…">
+            </div>
+            <div>
+              <label for="cas-f-tipo" class="field-label">Tipo</label>
+              <select id="cas-f-tipo" class="field">
+                <option value="Entrada/Salida">Entrada/Salida</option>
+                <option value="Solo Entrada">Solo Entrada</option>
+                <option value="Solo Salida">Solo Salida</option>
+              </select>
+            </div>
+          </div>
+          <label class="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+            <input id="cas-f-activa" type="checkbox" class="w-5 h-5 accent-[#0F2B46]" checked>
+            <span class="text-sm font-semibold text-ink">Caseta activa</span>
+          </label>
+        </div>
+
+        <div class="pt-3 border-t border-line grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button type="button" class="btn btn-neutral" data-close-modal="modal-catalogo">Cancelar</button>
+          <button id="btn-cat-guardar" type="submit" class="btn btn-secondary">
+            <i data-lucide="save" class="w-4 h-4"></i><span>Guardar</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== Modal: Confirmar eliminación ===================== -->
+  <div id="modal-cat-eliminar" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-del-title" hidden>
+    <div class="modal-panel !max-w-md">
+      <div class="modal-head !bg-bad">
+        <div class="flex items-center gap-2">
+          <i data-lucide="trash-2" class="w-5 h-5"></i>
+          <h3 id="modal-del-title" class="font-display font-bold">Eliminar registro</h3>
+        </div>
+        <button type="button" class="w-10 h-10 flex items-center justify-center" data-close-modal="modal-cat-eliminar" aria-label="Cerrar">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-4">
+        <p class="text-sm text-ink">¿Desea eliminar permanentemente este registro?</p>
+        <p id="del-cat-detalle" class="mt-2 p-3 rounded border border-line bg-mist font-semibold text-navy text-sm"></p>
+        <p class="mt-2 text-xs text-ink-muted">Si el registro tiene vehículos o movimientos relacionados, el sistema bloqueará la eliminación para preservar el historial.</p>
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button type="button" class="btn btn-neutral" data-close-modal="modal-cat-eliminar">Cancelar</button>
+          <button id="btn-cat-confirmar-eliminar" type="button" class="btn btn-danger">
+            <i data-lucide="trash-2" class="w-4 h-4"></i><span>Eliminar</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== Modal: Pase Vehicular QR — UAT CUTM Sur ===================== -->
+  <div id="modal-pase-qr" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pase-qr-title" hidden>
+    <div class="modal-panel !max-w-[460px]">
+      <div class="modal-head no-print">
+        <div class="flex items-center gap-2">
+          <i data-lucide="qr-code" class="w-5 h-5 text-accent"></i>
+          <h3 id="modal-pase-qr-title" class="font-display font-bold text-sm sm:text-base">Pase Vehicular QR — UAT CUTM Sur</h3>
+        </div>
+        <button type="button" class="w-10 h-10 flex items-center justify-center" data-close-modal="modal-pase-qr" aria-label="Cerrar pase QR">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Área imprimible -->
+      <div class="p-4 sm:p-6 bg-mist flex justify-center print-area">
+        <article class="qr-sticker">
+          <div class="w-full pb-2 border-b border-line no-print">
+            <span class="mono text-[10px] tracking-widest uppercase font-semibold text-ink-muted">Calcomanía de Parabrisas</span>
+          </div>
+          <div class="qr-sticker-head flex items-center justify-between gap-2 text-left">
+            <div>
+              <span class="block leading-tight">UAT · CUTM SUR</span>
+              <span class="mono text-[8pt] font-medium opacity-80 block">CONTROL VEHICULAR</span>
+            </div>
+            <span id="qr-pase-estado" class="badge badge-ok">Activo</span>
+          </div>
+
+          <div class="p-2 bg-white border-2 border-navy rounded">
+            <div id="qr-pase-code" class="qr-sticker-code"></div>
+          </div>
+
+          <div id="qr-pase-placa" class="qr-sticker-plate">---</div>
+
+          <div class="w-full bg-mist border border-line rounded p-2.5 grid grid-cols-2 gap-2 text-left">
+            <div>
+              <span class="block mono text-[9px] uppercase text-ink-muted font-semibold">Titular</span>
+              <span id="qr-pase-titular" class="block text-xs font-bold text-ink break-words">—</span>
+            </div>
+            <div>
+              <span class="block mono text-[9px] uppercase text-ink-muted font-semibold">Tipo de usuario</span>
+              <span id="qr-pase-tipo" class="block text-xs font-bold text-accent break-words">—</span>
+            </div>
+            <div>
+              <span class="block mono text-[9px] uppercase text-ink-muted font-semibold">Marca / Modelo</span>
+              <span id="qr-pase-vehiculo" class="block text-xs font-semibold text-ink break-words">—</span>
+            </div>
+            <div>
+              <span class="block mono text-[9px] uppercase text-ink-muted font-semibold">Color</span>
+              <span id="qr-pase-color" class="block text-xs font-semibold text-ink break-words">—</span>
+            </div>
+          </div>
+
+          <p id="qr-pase-id" class="qr-sticker-foot mono"></p>
+        </article>
+      </div>
+
+      <!-- Pie de acción -->
+      <div class="px-4 py-3 bg-white border-t border-line flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 no-print">
+        <button type="button" class="btn btn-neutral" data-close-modal="modal-pase-qr">Cerrar</button>
+        <button id="btn-qr-imprimir" type="button" class="btn btn-secondary">
+          <i data-lucide="printer" class="w-4 h-4"></i><span>Imprimir calcomanía</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== Modal: Alta / Edición de Usuario ===================== -->
+  <div id="modal-usuario" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-usuario-title" hidden>
+    <div class="modal-panel !max-w-lg">
+      <div class="modal-head">
+        <div class="flex items-center gap-2">
+          <i data-lucide="user-cog" class="w-5 h-5"></i>
+          <h3 id="modal-usuario-title" class="font-display font-bold">Usuario del sistema</h3>
+        </div>
+        <button type="button" class="w-10 h-10 flex items-center justify-center" data-close-modal="modal-usuario" aria-label="Cerrar formulario de usuario">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="form-usuario" class="p-4 space-y-3" novalidate>
+        <input id="usr-f-id" type="hidden">
+        <div>
+          <label for="usr-f-correo" class="field-label">Correo institucional *</label>
+          <input id="usr-f-correo" class="field" type="email" maxlength="120" placeholder="usuario@uat.edu.mx" autocomplete="off">
+          <p class="mt-1 mono text-[11px] text-ink-muted">Dominios permitidos: @uat.edu.mx, @docentes.uat.edu.mx, @alumnos.uat.edu.mx</p>
+        </div>
+        <div>
+          <label for="usr-f-nombre" class="field-label">Nombre completo *</label>
+          <input id="usr-f-nombre" class="field" type="text" maxlength="120" placeholder="Nombre del usuario">
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="usr-f-rol" class="field-label">Rol *</label>
+            <select id="usr-f-rol" class="field">
+              <option value="Administrador">Administrador</option>
+              <option value="Operador de Caseta">Operador de Caseta</option>
+              <option value="Consulta">Consulta</option>
+            </select>
+          </div>
+          <div>
+            <label for="usr-f-caseta" class="field-label">Caseta asignada</label>
+            <select id="usr-f-caseta" class="field">
+              <option value="">Sin caseta asignada</option>
+            </select>
+          </div>
+        </div>
+        <label class="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+          <input id="usr-f-activo" type="checkbox" class="w-5 h-5 accent-[#0F2B46]" checked>
+          <span class="text-sm font-semibold text-ink">Cuenta activa</span>
+        </label>
+        <div class="pt-3 border-t border-line grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button type="button" class="btn btn-neutral" data-close-modal="modal-usuario">Cancelar</button>
+          <button id="btn-usr-guardar" type="submit" class="btn btn-secondary">
+            <i data-lucide="save" class="w-4 h-4"></i><span>Guardar usuario</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>

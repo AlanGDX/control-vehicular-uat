@@ -213,10 +213,11 @@
 
   /* ---------- Calcomanía QR ---------- */
   .qr-sticker {
-    width: 80mm; border: 2px solid var(--c-primary); border-radius: 6px; background: #fff; padding: 5mm;
+    width: 80mm; max-width: 100%; border: 2px solid var(--c-primary); border-radius: 6px; background: #fff; padding: 5mm;
     display: flex; flex-direction: column; align-items: center; gap: 3mm; text-align: center; color: var(--c-primary);
   }
   .qr-sticker-head { width: 100%; background: var(--c-primary); color: #fff; font-family: var(--font-display); font-weight: 800; font-size: 11pt; padding: 2mm; border-radius: 3px; letter-spacing: .04em; }
+  .qr-sticker-code { display: flex; align-items: center; justify-content: center; }
   .qr-sticker-code img, .qr-sticker-code canvas { width: 50mm !important; height: 50mm !important; }
   .qr-sticker-plate { font-family: var(--font-mono); font-weight: 700; font-size: 20pt; letter-spacing: .12em; border: 2px solid var(--c-primary); padding: 1mm 4mm; border-radius: 3px; }
   .qr-sticker-foot { font-size: 8pt; color: var(--c-text-muted); }
@@ -225,12 +226,14 @@
   @media print {
     @page { margin: 8mm; }
     html, body { background: #fff !important; min-width: 0; }
+    body.modal-open { overflow: visible !important; }
     body * { visibility: hidden !important; }
+    .modal, .modal-panel { position: static !important; max-height: none !important; overflow: visible !important; background: transparent !important; border: 0 !important; padding: 0 !important; }
     .print-area, .print-area * { visibility: visible !important; }
-    .print-area { position: absolute; left: 0; top: 0; display: flex !important; flex-wrap: wrap; gap: 6mm; }
+    .print-area { position: absolute; left: 0; top: 0; display: flex !important; flex-wrap: wrap; gap: 6mm; padding: 0 !important; background: transparent !important; }
     .print-only { display: block !important; }
     .no-print { display: none !important; }
-    .qr-sticker { break-inside: avoid; page-break-inside: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .qr-sticker { width: 80mm; break-inside: avoid; page-break-inside: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 
   /* Scrollbar discreta */

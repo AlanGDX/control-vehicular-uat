@@ -1,0 +1,298 @@
+<!-- ViewReportes.html — Vista de reportes, indicadores KPI, gráficas Chart.js y exportación -->
+<section id="view-reportes" data-view="reportes" hidden aria-label="Reportes y análisis vehicular">
+
+  <!-- Encabezado y exportación -->
+  <div class="card p-4 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2">
+        <i data-lucide="bar-chart-3" class="w-5 h-5 text-accent"></i>
+        <h2 class="font-display font-extrabold text-navy text-lg sm:text-xl leading-tight">Reportes y Análisis Vehicular</h2>
+      </div>
+      <p id="rep-updated" class="mono text-[11px] text-ink-muted mt-1">Cargando indicadores del período…</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 shrink-0">
+      <button id="btn-export-xlsx" type="button" class="btn btn-neutral btn-sm" data-export="xlsx">
+        <i data-lucide="file-spreadsheet" class="w-4 h-4 text-ok"></i><span>Exportar Excel</span>
+      </button>
+      <button id="btn-export-pdf" type="button" class="btn btn-neutral btn-sm" data-export="pdf">
+        <i data-lucide="file-text" class="w-4 h-4 text-bad"></i><span>Exportar PDF</span>
+      </button>
+      <button id="btn-export-csv" type="button" class="btn btn-neutral btn-sm" data-export="csv">
+        <i data-lucide="download" class="w-4 h-4 text-navy"></i><span>CSV</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Barra de filtros combinables -->
+  <section class="card p-4 mb-4" aria-label="Filtros de reporte">
+    <div class="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+      <div class="flex items-center gap-2">
+        <i data-lucide="sliders-horizontal" class="w-4 h-4 text-accent"></i>
+        <span class="mono text-[11px] font-bold uppercase tracking-wider text-navy">Filtros del reporte</span>
+      </div>
+      <span class="mono text-[11px] text-ink-faint hidden sm:inline">Aplica a KPIs, gráficas y exportaciones</span>
+    </div>
+    <form id="rep-filtros-form" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-end">
+      <div>
+        <label for="rep-placa" class="field-label">Placa</label>
+        <input id="rep-placa" class="field mono uppercase" type="text" maxlength="12" placeholder="Ej. XYZ1234" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="rep-desde" class="field-label">Fecha desde</label>
+        <input id="rep-desde" class="field mono" type="date">
+      </div>
+      <div>
+        <label for="rep-hasta" class="field-label">Fecha hasta</label>
+        <input id="rep-hasta" class="field mono" type="date">
+      </div>
+      <div>
+        <label for="rep-caseta" class="field-label">Caseta</label>
+        <select id="rep-caseta" class="field" data-caseta-filter>
+          <option value="">Todas las casetas</option>
+        </select>
+      </div>
+      <div>
+        <label for="rep-tipo" class="field-label">Tipo de usuario</label>
+        <select id="rep-tipo" class="field">
+          <option value="">Todos</option>
+          <option value="Estudiante">Estudiante</option>
+          <option value="Docente">Docente</option>
+          <option value="Administrativo">Administrativo</option>
+          <option value="Visitante">Visitante</option>
+        </select>
+      </div>
+      <div>
+        <label for="rep-estado" class="field-label">Estado</label>
+        <select id="rep-estado" class="field">
+          <option value="">Todos</option>
+          <option value="DENTRO">DENTRO</option>
+          <option value="SALIO">SALIO</option>
+          <option value="SIN SALIDA">SIN SALIDA</option>
+        </select>
+      </div>
+      <div class="flex gap-2 sm:col-span-2 lg:col-span-2 xl:col-span-1">
+        <button id="btn-rep-aplicar" type="submit" class="btn btn-secondary flex-1 !px-3">
+          <i data-lucide="filter" class="w-4 h-4"></i><span>Aplicar filtros</span>
+        </button>
+        <button id="btn-rep-limpiar" type="button" class="btn btn-neutral !px-3" title="Limpiar filtros" aria-label="Limpiar filtros">
+          <i data-lucide="rotate-ccw" class="w-4 h-4"></i><span class="xl:hidden">Limpiar</span>
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Error de carga -->
+  <div id="rep-error" class="state-block state-bad mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" role="alert" hidden>
+    <div class="flex items-start gap-2">
+      <i data-lucide="circle-alert" class="w-5 h-5 mt-0.5"></i>
+      <div>
+        <p class="font-bold text-sm">No se pudo cargar el reporte</p>
+        <p id="rep-error-msg" class="text-xs text-ink mt-0.5"></p>
+      </div>
+    </div>
+    <button id="btn-rep-reintentar" type="button" class="btn btn-neutral btn-sm">
+      <i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar
+    </button>
+  </div>
+
+  <!-- Skeleton KPI -->
+  <div id="rep-skeleton" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4" aria-hidden="true" hidden>
+    <div class="card p-4 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-8 w-20"></div><div class="skeleton h-3 w-28"></div></div>
+    <div class="card p-4 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-8 w-20"></div><div class="skeleton h-3 w-28"></div></div>
+    <div class="card p-4 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-8 w-20"></div><div class="skeleton h-3 w-28"></div></div>
+    <div class="card p-4 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-8 w-20"></div><div class="skeleton h-3 w-28"></div></div>
+    <div class="card p-4 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-8 w-20"></div><div class="skeleton h-3 w-28"></div></div>
+  </div>
+
+  <!-- 5 Tarjetas KPI principales -->
+  <section id="rep-kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4" aria-label="Indicadores principales">
+    <article class="card p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between gap-2">
+        <span class="field-label !mb-0">Total Entradas</span>
+        <i data-lucide="log-in" class="w-4 h-4 text-navy"></i>
+      </div>
+      <p id="kpi-total-entradas" class="mono text-3xl font-bold text-navy mt-2">0</p>
+      <p id="kpi-vehiculos-unicos" class="text-xs text-ink-muted mt-1">0 vehículos únicos</p>
+    </article>
+
+    <article class="card p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between gap-2">
+        <span class="field-label !mb-0">Salidas</span>
+        <i data-lucide="log-out" class="w-4 h-4 text-navy"></i>
+      </div>
+      <p id="kpi-total-salidas" class="mono text-3xl font-bold text-navy mt-2">0</p>
+      <p id="kpi-tasa-salidas" class="text-xs text-ink-muted mt-1">0% con salida</p>
+    </article>
+
+    <article class="card p-4 flex flex-col justify-between border-l-4 border-l-ok">
+      <div class="flex items-center justify-between gap-2">
+        <span class="field-label !mb-0 text-navy">Dentro ahora</span>
+        <span class="badge badge-dentro">En campus</span>
+      </div>
+      <p id="kpi-dentro-ahora" class="mono text-3xl font-bold text-navy mt-2">0</p>
+      <p class="text-xs text-ink-muted mt-1">Activos en tiempo real</p>
+    </article>
+
+    <article class="card p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between gap-2">
+        <span class="field-label !mb-0">Hora pico</span>
+        <i data-lucide="clock" class="w-4 h-4 text-accent"></i>
+      </div>
+      <p id="kpi-hora-pico" class="mono text-3xl font-bold text-accent mt-2">-</p>
+      <p id="kpi-hora-pico-detalle" class="text-xs text-ink-muted mt-1">Sin registros en el período</p>
+    </article>
+
+    <article class="card p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between gap-2">
+        <span class="field-label !mb-0">Estancia promedio</span>
+        <i data-lucide="hourglass" class="w-4 h-4 text-navy"></i>
+      </div>
+      <p id="kpi-estancia-min" class="mono text-3xl font-bold text-navy mt-2">0 min</p>
+      <p id="kpi-estancia-fmt" class="text-xs text-ink-muted mt-1">Equivalente a 0 min</p>
+    </article>
+  </section>
+
+  <!-- Bloque destacado de métricas de control -->
+  <section class="card border-2 border-navy/20 p-4 mb-4" aria-label="Métricas de control de salidas y estancia">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-line">
+      <div class="flex items-center gap-2">
+        <i data-lucide="shield-alert" class="w-5 h-5 text-warn"></i>
+        <h3 class="font-display font-bold text-navy text-[15px] uppercase tracking-wide">Control de Salidas y Alertas de Estancia</h3>
+      </div>
+      <span class="mono text-[11px] text-ink-muted">Seguimiento de incidencias operativas</span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="p-3 rounded border border-warn-bd bg-warn-bg/50 flex items-center justify-between gap-3">
+        <div>
+          <p class="field-label !mb-1 text-warn">Salidas no registradas</p>
+          <p id="kpi-sin-salida" class="mono text-2xl font-bold text-ink">0</p>
+          <p class="text-xs text-ink-muted mt-0.5">Movimientos marcados como SIN SALIDA</p>
+        </div>
+        <span class="badge badge-sin-salida">Sin salida</span>
+      </div>
+
+      <div class="p-3 rounded border border-line bg-mist flex items-center justify-between gap-3">
+        <div>
+          <p class="field-label !mb-1">% Sin salida</p>
+          <p id="kpi-pct-sin-salida" class="mono text-2xl font-bold text-navy">0%</p>
+          <p class="text-xs text-ink-muted mt-0.5">Proporción sobre el total filtrado</p>
+        </div>
+        <i data-lucide="percent" class="w-6 h-6 text-navy/70"></i>
+      </div>
+
+      <div id="kpi-alertas-card" class="p-3 rounded border border-line bg-mist flex items-center justify-between gap-3">
+        <div>
+          <p class="field-label !mb-1">Alertas de estancia</p>
+          <p id="kpi-alertas-estancia" class="mono text-2xl font-bold text-navy">0</p>
+          <p class="text-xs text-ink-muted mt-0.5">Vehículos dentro con estancia ≥12 h</p>
+        </div>
+        <span id="kpi-alertas-badge" class="badge badge-info">Normal</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Cuadrícula de gráficas Chart.js -->
+  <section class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4" aria-label="Gráficas de análisis">
+
+    <!-- a) Afluencia por horario -->
+    <article class="card p-4 lg:col-span-7 flex flex-col">
+      <div class="flex items-start justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+        <div>
+          <h3 class="font-display font-bold text-navy text-base">Afluencia por horario</h3>
+          <p class="mono text-[11px] text-ink-muted">Entradas por hora de 00:00 a 23:00 (hora pico en naranja)</p>
+        </div>
+        <i data-lucide="bar-chart-2" class="w-4 h-4 text-navy"></i>
+      </div>
+      <div class="relative h-64 w-full">
+        <canvas id="chart-por-hora"></canvas>
+        <div id="empty-chart-hora" class="absolute inset-0 flex flex-col items-center justify-center text-ink-muted text-sm" hidden>
+          <i data-lucide="bar-chart-2" class="w-7 h-7 text-line mb-1"></i>
+          <span>Sin entradas registradas en el rango seleccionado.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- b) Entradas por caseta -->
+    <article class="card p-4 lg:col-span-5 flex flex-col">
+      <div class="flex items-start justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+        <div>
+          <h3 class="font-display font-bold text-navy text-base">Entradas por caseta</h3>
+          <p class="mono text-[11px] text-ink-muted">Comparativa contra registros SIN SALIDA</p>
+        </div>
+        <i data-lucide="map-pin" class="w-4 h-4 text-navy"></i>
+      </div>
+      <div class="relative h-64 w-full">
+        <canvas id="chart-por-caseta"></canvas>
+        <div id="empty-chart-caseta" class="absolute inset-0 flex flex-col items-center justify-center text-ink-muted text-sm" hidden>
+          <i data-lucide="map-pin" class="w-7 h-7 text-line mb-1"></i>
+          <span>Sin movimientos por caseta para mostrar.</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- c) Distribución por tipo de usuario -->
+    <article class="card p-4 lg:col-span-4 flex flex-col">
+      <div class="flex items-start justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+        <div>
+          <h3 class="font-display font-bold text-navy text-base">Distribución por tipo de usuario</h3>
+          <p class="mono text-[11px] text-ink-muted">Participación en accesos</p>
+        </div>
+        <i data-lucide="pie-chart" class="w-4 h-4 text-navy"></i>
+      </div>
+      <div class="relative h-48 w-full">
+        <canvas id="chart-por-tipo"></canvas>
+        <div id="empty-chart-tipo" class="absolute inset-0 flex flex-col items-center justify-center text-ink-muted text-sm" hidden>
+          <i data-lucide="pie-chart" class="w-7 h-7 text-line mb-1"></i>
+          <span>Sin datos de tipo de usuario.</span>
+        </div>
+      </div>
+      <div id="rep-tipo-legend" class="mt-3 pt-2.5 border-t border-line space-y-1.5 text-xs"></div>
+    </article>
+
+    <!-- d) Tendencia por día -->
+    <article class="card p-4 lg:col-span-8 flex flex-col">
+      <div class="flex items-start justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+        <div>
+          <h3 class="font-display font-bold text-navy text-base">Tendencia diaria</h3>
+          <p class="mono text-[11px] text-ink-muted">Entradas diarias y seguimiento de salidas no registradas</p>
+        </div>
+        <i data-lucide="trending-up" class="w-4 h-4 text-navy"></i>
+      </div>
+      <div class="relative h-64 w-full">
+        <canvas id="chart-por-dia"></canvas>
+        <div id="empty-chart-dia" class="absolute inset-0 flex flex-col items-center justify-center text-ink-muted text-sm" hidden>
+          <i data-lucide="trending-up" class="w-7 h-7 text-line mb-1"></i>
+          <span>Sin registros diarios en el período seleccionado.</span>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- Tabla de Vehículos más frecuentes -->
+  <section class="card overflow-hidden" aria-labelledby="titulo-frecuentes">
+    <div class="px-4 py-3 border-b border-line bg-mist flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <i data-lucide="award" class="w-5 h-5 text-navy"></i>
+        <div>
+          <h3 id="titulo-frecuentes" class="font-display font-bold text-navy text-base">Vehículos más frecuentes</h3>
+          <p class="mono text-[11px] text-ink-muted">Top 10 placas con mayor número de ingresos</p>
+        </div>
+      </div>
+      <span id="rep-frecuentes-count" class="badge badge-count">0</span>
+    </div>
+    <div class="w-full overflow-x-auto">
+      <table class="w-full text-left border-collapse min-w-[600px]">
+        <thead>
+          <tr class="border-b border-line bg-mist/60">
+            <th class="py-2.5 px-4 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted w-12">#</th>
+            <th class="py-2.5 px-4 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Placa</th>
+            <th class="py-2.5 px-4 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Titular</th>
+            <th class="py-2.5 px-4 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Tipo</th>
+            <th class="py-2.5 px-4 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted text-right">Visitas</th>
+          </tr>
+        </thead>
+        <tbody id="rep-frecuentes-tbody" class="divide-y divide-line text-sm"></tbody>
+      </table>
+    </div>
+  </section>
+</section>

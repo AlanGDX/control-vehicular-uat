@@ -205,19 +205,36 @@
         </button>
       </div>
       <div class="p-4">
-        <div id="qr-reader"></div>
-        <p id="qr-status" class="mt-3 text-sm font-semibold text-navy flex items-start gap-2" role="status"></p>
-        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <label for="qr-file-input" class="btn btn-secondary cursor-pointer">
-            <i data-lucide="camera" class="w-5 h-5"></i>Leer QR desde foto
-          </label>
-          <button id="btn-qr-retry" type="button" class="btn btn-neutral" hidden>
-            <i data-lucide="refresh-cw" class="w-5 h-5"></i>Reintentar cámara
+        <div id="qr-live-wrap" hidden>
+          <div id="qr-reader"></div>
+          <button id="btn-qr-retry" type="button" class="btn btn-neutral w-full mt-3" hidden>
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar cámara en vivo
           </button>
-          <button type="button" class="btn btn-neutral" data-close-modal="modal-qr">Cancelar</button>
         </div>
+
+        <div id="qr-native-hero" class="rounded-md border border-line bg-mist p-4 text-center">
+          <div class="mx-auto w-12 h-12 rounded bg-navy text-white flex items-center justify-center">
+            <i data-lucide="qr-code" class="w-6 h-6"></i>
+          </div>
+          <p class="mt-3 font-display font-bold text-navy text-base">Escaneo rápido de calcomanía QR</p>
+          <p class="mt-1 text-xs text-ink-muted">Capture una foto del código QR o cargue una imagen para detectar la placa automáticamente.</p>
+        </div>
+
+        <p id="qr-status" class="mt-3 text-sm font-semibold text-navy flex items-start gap-2" role="status" hidden></p>
+
+        <div class="mt-4 flex flex-col gap-2">
+          <label for="qr-file-input" id="btn-qr-open-camera" class="btn btn-primary w-full cursor-pointer">
+            <i data-lucide="camera" class="w-5 h-5"></i><span>Abrir cámara y escanear QR</span>
+          </label>
+          <label for="qr-file-gallery" id="btn-qr-open-gallery" class="btn btn-neutral w-full cursor-pointer">
+            <i data-lucide="image" class="w-5 h-5"></i><span>Seleccionar imagen QR desde archivo</span>
+          </label>
+          <button type="button" class="btn btn-neutral w-full" data-close-modal="modal-qr">Cancelar</button>
+        </div>
+
         <input id="qr-file-input" type="file" accept="image/*" capture="environment" class="sr-only">
-        <p class="mt-3 text-xs text-ink-muted">Si el navegador bloquea la cámara en vivo, use "Leer QR desde foto" para abrir la cámara nativa del dispositivo.</p>
+        <input id="qr-file-gallery" type="file" accept="image/*" class="sr-only">
+        <p class="mt-3 text-xs text-ink-muted text-center">En celular abre la cámara directamente; también compatible con lectores QR USB/Bluetooth en el campo de placa.</p>
         <div id="qr-file-host" class="qr-file-host" aria-hidden="true"></div>
       </div>
     </div>

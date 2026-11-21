@@ -74,6 +74,55 @@ function fechaHoraCorta(iso) {
   return s.substring(8, 10) + '/' + s.substring(5, 7) + ' ' + s.substring(11, 16);
 }
 
+/** "2026-11-20T08:14:05" -> "20/11/2026 08:14:05" */
+function fechaHoraLegible(iso) {
+  const s = String(iso || '');
+  if (s.length < 16) return '--';
+  const hora = s.length >= 19 ? s.substring(11, 19) : s.substring(11, 16);
+  return s.substring(8, 10) + '/' + s.substring(5, 7) + '/' + s.substring(0, 4) + ' ' + hora;
+}
+
+/** Devuelve badge HTML para estados de movimiento: DENTRO, SALIO, SIN SALIDA. */
+function badgeEstadoHtml(estado) {
+  if (estado === 'DENTRO') return '<span class="badge badge-dentro">DENTRO</span>';
+  if (estado === 'SALIO') return '<span class="badge badge-salio">SALIO</span>';
+  if (estado === 'SIN SALIDA') return '<span class="badge badge-sin-salida">SIN SALIDA</span>';
+  return '<span class="badge badge-info">' + escapeHtml(estado || '—') + '</span>';
+}
+
+/** Convierte una cadena base64 en Blob sin exceder pila de argumentos. */
+function base64ToBlob(base64, mimeType) {
+  const limpio = String(base64 || '').replace(/\s+/g, '');
+  const bytes = atob(limpio);
+  const partes = [];
+  const paso = 8192;
+  for (let offset = 0; offset < bytes.length; offset += paso) {
+    const slice = bytes.slice(offset, offset + paso);
+    const arr = new Uint8Array(slice.length);
+    for (let i = 0; i < slice.length; i++) arr[i] = slice.charCodeAt(i);
+    partes.push(arr);
+  }
+  return new Blob(partes, { type: mimeType || 'application/octet-stream' });
+}
+
+/** Descarga un archivo retornado por exportarMovimientos(): { nombre, mime, base64 }. */
+function descargarArchivoBase64(res) {
+  if (!res || !res.base64) throw new Error('El servidor no devolvió el contenido del archivo.');
+  const blob = base64ToBlob(res.base64, res.mime);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = res.nombre || 'Movimientos_CUTM_Sur';
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    if (a.parentNode) a.parentNode.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 15000);
+}
+
 /** 3.25 -> "3 h 15 min" */
 function formatHoras(h) {
   const total = Math.max(0, Math.round(Number(h || 0) * 60));
@@ -337,6 +386,7 @@ async function cargarCasetas() {
   }
   renderCasetaSelects();
   setCaseta(resolverCasetaInicial(), { silent: true });
+  if (typeof CAT !== 'undefined' && CAT.usuariosLoaded) renderUsuariosTabla();
 }
 
 function buscarCaseta(valor) {
@@ -465,6 +515,7 @@ function initOperacion() {
   });
 
   $('#qr-file-input').addEventListener('change', leerQRDesdeArchivo);
+  $('#qr-file-gallery').addEventListener('change', leerQRDesdeArchivo);
   $('#btn-qr-retry').addEventListener('click', iniciarCamaraQR);
   MODAL_CLOSE_HOOKS['modal-qr'] = detenerCamaraQR;
 
@@ -520,7 +571,7 @@ function cambiarPlaca(placa) {
   renderVehiculo();
 }
 
-async function consultarPlaca() {
+async function consultarPlaca(opts) {
   const p = OP.placa;
   if (p.length < 2) return;
   const seq = ++OP.lookupSeq;
@@ -528,8 +579,13 @@ async function consultarPlaca() {
     const data = await runGas('buscarVehiculoPorPlaca', p);
     if (seq !== OP.lookupSeq || p !== OP.placa) return;
     OP.resultados = Array.isArray(data) ? data : [];
-    OP.vehiculo = OP.resultados.find(v => normalizarPlaca(v.Placa) === p) || null;
+    const exactIdx = OP.resultados.findIndex(v => normalizarPlaca(v.Placa) === p);
+    OP.vehiculo = exactIdx !== -1 ? OP.resultados[exactIdx] : null;
     OP.lookupError = '';
+    if (opts && opts.seleccionarExacto && exactIdx !== -1) {
+      seleccionarResultado(exactIdx);
+      return;
+    }
   } catch (e) {
     if (seq !== OP.lookupSeq || p !== OP.placa) return;
     OP.resultados = [];
@@ -615,7 +671,15 @@ function onPlacaKeydown(e) {
   } else if (e.key === 'Enter') {
     e.preventDefault();
     if (abierto && OP.acIndex >= 0) { seleccionarResultado(OP.acIndex); return; }
-    if (!OP.lookupDone && OP.placa.length >= 2) { buscarPlacaDebounced.cancel(); consultarPlaca(); return; }
+    if (!OP.lookupDone && OP.placa.length >= 2) {
+      buscarPlacaDebounced.cancel();
+      consultarPlaca({ seleccionarExacto: true });
+      return;
+    }
+    if (abierto) {
+      const exactIdx = OP.resultados.findIndex(v => normalizarPlaca(v.Placa) === OP.placa);
+      if (exactIdx !== -1) { seleccionarResultado(exactIdx); return; }
+    }
     registrarEntrada();
   }
 }
@@ -793,6 +857,10 @@ async function registrarEntrada() {
           }
           OP.catalogoGuardadoPara = placa;
           actualizarFormVisitante();
+          if (typeof CAT !== 'undefined' && CAT.cache) {
+            delete CAT.cache.visitantes;
+            delete CAT.cache.vehiculos;
+          }
         }
       }
 
@@ -1004,11 +1072,43 @@ function resumenCierreHtml(r) {
 }
 
 /* =====================================================================
- * Lector QR (html5-qrcode) con respaldo por foto
+ * Lector QR (html5-qrcode) con respaldo nativo para iframe de GAS
  * ===================================================================== */
+function camaraEnVivoPermitida() {
+  try {
+    const fp = document.featurePolicy;
+    if (fp && typeof fp.allowsFeature === 'function' && !fp.allowsFeature('camera')) return false;
+  } catch (e) { /* featurePolicy no accesible */ }
+  try {
+    const pp = document.permissionsPolicy;
+    if (pp && typeof pp.allowsFeature === 'function' && !pp.allowsFeature('camera')) return false;
+  } catch (e) { /* permissionsPolicy no accesible */ }
+
+  let enIframe = false;
+  try { enIframe = window.self !== window.top; } catch (e) { enIframe = true; }
+  if (enIframe) {
+    const host = String((window.location && window.location.hostname) || '').toLowerCase();
+    const ref = String(document.referrer || '').toLowerCase();
+    if (host.indexOf('googleusercontent.com') !== -1 ||
+        host.indexOf('script.google.com') !== -1 ||
+        ref.indexOf('googleusercontent.com') !== -1 ||
+        ref.indexOf('script.google.com') !== -1 ||
+        !!(window.google && google.script && google.script.run)) {
+      return false;
+    }
+  }
+  return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function');
+}
+
 function setQrStatus(msg, tipo) {
   const el = $('#qr-status');
+  if (!msg) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
   const icon = tipo === 'warn' ? 'triangle-alert' : tipo === 'busy' ? 'loader-circle' : 'info';
+  el.hidden = false;
   el.className = 'mt-3 text-sm font-semibold flex items-start gap-2 ' + (tipo === 'warn' ? 'text-warn' : 'text-navy');
   el.innerHTML = '<i data-lucide="' + icon + '" class="w-4 h-4 mt-0.5 ' + (tipo === 'busy' ? 'animate-spin' : '') + '"></i><span>' + escapeHtml(msg) + '</span>';
   refreshIcons();
@@ -1048,19 +1148,31 @@ function procesarTextoQR(texto) {
 
 function abrirLectorQR() {
   $('#btn-qr-retry').hidden = true;
+  const enVivo = camaraEnVivoPermitida();
+  $('#qr-live-wrap').hidden = !enVivo;
+  $('#qr-native-hero').hidden = enVivo;
+  setQrStatus('', 'info');
   openModal('modal-qr');
+  if (!enVivo) return;
   if (typeof window.Html5Qrcode === 'undefined') {
-    setQrStatus('No se pudo cargar el lector QR. Verifique la conexión a internet y vuelva a intentarlo.', 'warn');
+    $('#qr-live-wrap').hidden = true;
+    $('#qr-native-hero').hidden = false;
+    setQrStatus('No se pudo cargar el lector de cámara en vivo. Use las opciones de foto o archivo.', 'warn');
     return;
   }
   iniciarCamaraQR();
 }
 
 async function iniciarCamaraQR() {
+  if (!camaraEnVivoPermitida()) {
+    $('#qr-live-wrap').hidden = true;
+    $('#qr-native-hero').hidden = false;
+    return;
+  }
   $('#btn-qr-retry').hidden = true;
   await detenerCamaraQR();
   if (typeof window.Html5Qrcode === 'undefined') return;
-  setQrStatus('Iniciando cámara…', 'busy');
+  setQrStatus('Iniciando cámara en vivo…', 'busy');
   OP.qrProcesando = false;
   const sc = new Html5Qrcode('qr-reader', { verbose: false });
   OP.scanner = sc;
@@ -1090,7 +1202,9 @@ async function iniciarCamaraQR() {
   } catch (e) {
     if (OP.scanner !== sc) return;
     await detenerCamaraQR();
-    setQrStatus('La cámara en vivo no está disponible (permiso denegado o bloqueada por el navegador). Use "Leer QR desde foto".', 'warn');
+    $('#qr-live-wrap').hidden = true;
+    $('#qr-native-hero').hidden = false;
+    setQrStatus('La cámara en vivo no está disponible. Use el botón para escanear desde cámara o archivo.', 'warn');
     $('#btn-qr-retry').hidden = false;
   }
 }
@@ -1119,11 +1233,1436 @@ async function leerQRDesdeArchivo(e) {
     const texto = await lector.scanFile(file, false);
     procesarTextoQR(texto);
   } catch (err) {
-    setQrStatus('No se detectó un código QR en la foto. Tome la foto más cerca, enfocada y con buena luz.', 'warn');
-    $('#btn-qr-retry').hidden = false;
+    setQrStatus('No se detectó un código QR en la imagen. Intente acercar la cámara, enfocar y mejorar la iluminación.', 'warn');
+    $('#btn-qr-retry').hidden = !camaraEnVivoPermitida();
   } finally {
     try { lector.clear(); } catch (err) { /* sin contenido que limpiar */ }
     input.value = '';
+  }
+}
+
+/* =====================================================================
+ * Vista Consultas y Bitácora
+ * ===================================================================== */
+const CON = {
+  tab: 'movimientos',
+  movLoaded: false,
+  bitLoaded: false,
+  movLoading: false,
+  bitLoading: false,
+  forceReloadOnShow: false
+};
+
+function initConsultas() {
+  const placa = $('#con-placa');
+  placa.addEventListener('input', () => {
+    const limpia = normalizarPlaca(placa.value).slice(0, 8);
+    if (placa.value !== limpia) placa.value = limpia;
+  });
+
+  $$('[data-con-tab]').forEach(btn => {
+    btn.addEventListener('click', () => cambiarTabConsultas(btn.getAttribute('data-con-tab')));
+  });
+
+  $('#con-filtros-form').addEventListener('submit', e => {
+    e.preventDefault();
+    cargarMovimientos($('#btn-con-buscar'));
+  });
+  $('#btn-con-limpiar').addEventListener('click', () => {
+    limpiarCamposConsultas();
+    cargarMovimientos($('#btn-con-buscar'));
+  });
+  $('#con-tbody').addEventListener('click', e => {
+    const retry = e.target.closest('[data-action="reintentar-con"]');
+    if (retry) cargarMovimientos($('#btn-con-buscar'));
+  });
+
+  $('#bit-filtros-form').addEventListener('submit', e => {
+    e.preventDefault();
+    cargarBitacora($('#btn-bit-buscar'));
+  });
+  $('#btn-bit-limpiar').addEventListener('click', () => {
+    $('#bit-usuario').value = '';
+    $('#bit-accion').value = '';
+    $('#bit-desde').value = '';
+    $('#bit-hasta').value = '';
+    $('#bit-limite').value = '500';
+    cargarBitacora($('#btn-bit-buscar'));
+  });
+  $('#bit-tbody').addEventListener('click', e => {
+    const retry = e.target.closest('[data-action="reintentar-bit"]');
+    if (retry) cargarBitacora($('#btn-bit-buscar'));
+  });
+
+  VIEW_HOOKS.consultas = {
+    onShow: () => {
+      if (CON.tab === 'bitacora' && hasPerm('bitacora')) {
+        if (!CON.bitLoaded) cargarBitacora();
+      } else {
+        cambiarTabConsultas('movimientos', { noLoad: true });
+        if (CON.forceReloadOnShow || !CON.movLoaded) {
+          CON.forceReloadOnShow = false;
+          cargarMovimientos();
+        }
+      }
+    }
+  };
+}
+
+function cambiarTabConsultas(tab, opts) {
+  if (tab === 'bitacora' && !hasPerm('bitacora')) {
+    showToast('No tiene permiso para consultar la bitácora.', 'warning');
+    return;
+  }
+  CON.tab = tab;
+  const esBit = tab === 'bitacora';
+  $('#con-panel-movimientos').hidden = esBit;
+  $('#con-panel-bitacora').hidden = !esBit;
+
+  const btnMov = $('#tab-btn-movimientos');
+  const btnBit = $('#tab-btn-bitacora');
+  btnMov.className = 'btn ' + (esBit ? 'btn-neutral' : 'btn-secondary') + ' btn-sm flex-1 sm:flex-initial';
+  btnMov.setAttribute('aria-selected', String(!esBit));
+  if (btnBit && !btnBit.hidden) {
+    btnBit.className = 'btn ' + (esBit ? 'btn-secondary' : 'btn-neutral') + ' btn-sm flex-1 sm:flex-initial';
+    btnBit.setAttribute('aria-selected', String(esBit));
+  }
+
+  if (opts && opts.noLoad) return;
+  if (esBit && !CON.bitLoaded) cargarBitacora();
+  if (!esBit && !CON.movLoaded) cargarMovimientos();
+}
+
+function limpiarCamposConsultas() {
+  $('#con-placa').value = '';
+  $('#con-desde').value = '';
+  $('#con-hasta').value = '';
+  $('#con-caseta').value = '';
+  $('#con-tipo').value = '';
+  $('#con-estado').value = '';
+}
+
+function leerFiltrosConsultas() {
+  const f = {};
+  const placa = normalizarPlaca(valorCampo('con-placa'));
+  const desde = valorCampo('con-desde');
+  const hasta = valorCampo('con-hasta');
+  const casetaId = valorCampo('con-caseta');
+  const tipoUsuario = valorCampo('con-tipo');
+  const estado = valorCampo('con-estado');
+  if (placa) f.placa = placa;
+  if (desde) f.desde = desde;
+  if (hasta) f.hasta = hasta;
+  if (casetaId) f.casetaId = casetaId;
+  if (tipoUsuario) f.tipoUsuario = tipoUsuario;
+  if (estado) f.estado = estado;
+  return f;
+}
+
+function verPlacaEnConsultas(placa) {
+  if (!hasPerm('consulta')) return;
+  limpiarCamposConsultas();
+  $('#con-placa').value = normalizarPlaca(placa);
+  cambiarTabConsultas('movimientos', { noLoad: true });
+  if (STATE.currentView === 'consultas') {
+    cargarMovimientos($('#btn-con-buscar'));
+  } else {
+    CON.forceReloadOnShow = true;
+    navigate('consultas');
+  }
+}
+
+function renderTablaSkeleton(tbodyId, cols, rows) {
+  let html = '';
+  for (let r = 0; r < (rows || 5); r++) {
+    html += '<tr aria-hidden="true">';
+    for (let c = 0; c < cols; c++) {
+      html += '<td class="py-3 px-3"><div class="skeleton h-4 w-full"></div></td>';
+    }
+    html += '</tr>';
+  }
+  $('#' + tbodyId).innerHTML = html;
+}
+
+async function cargarMovimientos(btn) {
+  if (CON.movLoading) return;
+  const filtros = leerFiltrosConsultas();
+  if (filtros.desde && filtros.hasta && filtros.desde > filtros.hasta) {
+    showToast('La fecha "Desde" no puede ser mayor que la fecha "Hasta".', 'warning');
+    return;
+  }
+  CON.movLoading = true;
+  renderTablaSkeleton('con-tbody', 6, 5);
+  try {
+    const rows = await withBusy(btn, 'Consultando…', () => runGas('consultarMovimientos', filtros));
+    if (rows === undefined) return;
+    CON.movLoaded = true;
+    renderMovimientos(Array.isArray(rows) ? rows : []);
+    $('#con-updated').textContent = 'Actualizado ' + horaActual();
+  } catch (e) {
+    $('#con-count').textContent = '0';
+    $('#con-resumen-estados').innerHTML = '';
+    $('#con-tbody').innerHTML =
+      '<tr><td colspan="6" class="p-6 text-center">' +
+        '<i data-lucide="circle-alert" class="w-8 h-8 mx-auto text-bad"></i>' +
+        '<p class="mt-2 font-semibold text-ink">' + escapeHtml(e.message) + '</p>' +
+        '<button type="button" class="btn btn-neutral btn-sm mt-3" data-action="reintentar-con">' +
+        '<i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar</button>' +
+      '</td></tr>';
+    refreshIcons();
+    showToast('Error al consultar movimientos: ' + e.message, 'error');
+  } finally {
+    CON.movLoading = false;
+  }
+}
+
+function renderMovimientos(rows) {
+  $('#con-count').textContent = String(rows.length);
+  const conteo = { DENTRO: 0, SALIO: 0, 'SIN SALIDA': 0 };
+  rows.forEach(m => { if (Object.prototype.hasOwnProperty.call(conteo, m.Estado)) conteo[m.Estado]++; });
+  $('#con-resumen-estados').innerHTML =
+    '<span class="badge badge-dentro">Dentro: ' + conteo.DENTRO + '</span>' +
+    '<span class="badge badge-salio">Salio: ' + conteo.SALIO + '</span>' +
+    '<span class="badge badge-sin-salida">Sin salida: ' + conteo['SIN SALIDA'] + '</span>';
+
+  const tbody = $('#con-tbody');
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" class="p-8 text-center text-ink-muted">' +
+        '<i data-lucide="search" class="w-8 h-8 mx-auto text-line"></i>' +
+        '<p class="mt-2 font-semibold">No se encontraron movimientos con los filtros seleccionados.</p>' +
+      '</td></tr>';
+    refreshIcons();
+    return;
+  }
+
+  tbody.innerHTML = rows.map(m => {
+    const entradaInfo = [m.CasetaEntrada, m.OperadorEntrada].filter(Boolean).join(' · ');
+    const salidaFecha = m.FechaHoraSalida ? fechaHoraLegible(m.FechaHoraSalida) : (m.Estado === 'SIN SALIDA' ? 'No registrada' : '—');
+    const salidaInfo = [m.CasetaSalida, m.OperadorSalida].filter(Boolean).join(' · ');
+    return '<tr class="hover:bg-mist/60 align-top">' +
+      '<td class="py-3 px-3"><span class="plate plate-solid">' + escapeHtml(m.Placa) + '</span></td>' +
+      '<td class="py-3 px-3">' + badgeEstadoHtml(m.Estado) + '</td>' +
+      '<td class="py-3 px-3"><p class="font-semibold text-ink">' + escapeHtml(m.TitularNombre || 'Sin titular registrado') + '</p>' +
+        '<p class="mono text-[11px] text-ink-muted mt-0.5">' + escapeHtml(m.TipoUsuario || '—') + '</p></td>' +
+      '<td class="py-3 px-3"><p class="mono text-xs font-semibold text-navy">' + escapeHtml(fechaHoraLegible(m.FechaHoraEntrada)) + '</p>' +
+        '<p class="text-xs text-ink-muted mt-0.5">' + escapeHtml(entradaInfo || '—') + '</p></td>' +
+      '<td class="py-3 px-3"><p class="mono text-xs font-semibold ' + (m.FechaHoraSalida ? 'text-ink' : 'text-ink-faint') + '">' + escapeHtml(salidaFecha) + '</p>' +
+        (salidaInfo ? '<p class="text-xs text-ink-muted mt-0.5">' + escapeHtml(salidaInfo) + '</p>' : '') + '</td>' +
+      '<td class="py-3 px-3 text-xs text-ink-muted max-w-[220px] break-words">' + escapeHtml(m.Observaciones || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  refreshIcons();
+}
+
+function leerFiltrosBitacora() {
+  const f = {};
+  const usuario = valorCampo('bit-usuario');
+  const accion = valorCampo('bit-accion');
+  const desde = valorCampo('bit-desde');
+  const hasta = valorCampo('bit-hasta');
+  const limite = Number(valorCampo('bit-limite')) || 500;
+  if (usuario) f.usuario = usuario;
+  if (accion) f.accion = accion;
+  if (desde) f.desde = desde;
+  if (hasta) f.hasta = hasta;
+  f.limite = limite;
+  return f;
+}
+
+function badgeBitacoraHtml(accion) {
+  const a = String(accion || '');
+  let cls = 'badge-info';
+  if (['ENTRADA', 'SALIDA', 'ALTA', 'ALTA_USUARIO', 'ACTIVAR_USUARIO', 'LOGIN'].indexOf(a) !== -1) cls = 'badge-ok';
+  else if (['SIN_SALIDA', 'CIERRE_TURNO', 'CIERRE_NOCTURNO', 'ELIMINAR', 'DESACTIVAR_USUARIO'].indexOf(a) !== -1) cls = 'badge-warn';
+  else if (['LOGIN_FALLIDO', 'ACCESO_DENEGADO'].indexOf(a) !== -1) cls = 'badge-bad';
+  return '<span class="badge ' + cls + '">' + escapeHtml(a || '—') + '</span>';
+}
+
+async function cargarBitacora(btn) {
+  if (!hasPerm('bitacora') || CON.bitLoading) return;
+  const filtros = leerFiltrosBitacora();
+  if (filtros.desde && filtros.hasta && filtros.desde > filtros.hasta) {
+    showToast('La fecha "Desde" no puede ser mayor que la fecha "Hasta".', 'warning');
+    return;
+  }
+  CON.bitLoading = true;
+  renderTablaSkeleton('bit-tbody', 5, 6);
+  try {
+    const rows = await withBusy(btn, 'Consultando…', () => runGas('consultarBitacora', filtros));
+    if (rows === undefined) return;
+    CON.bitLoaded = true;
+    renderBitacora(Array.isArray(rows) ? rows : []);
+    $('#bit-updated').textContent = 'Actualizado ' + horaActual();
+  } catch (e) {
+    $('#bit-count').textContent = '0';
+    $('#bit-tbody').innerHTML =
+      '<tr><td colspan="5" class="p-6 text-center">' +
+        '<i data-lucide="circle-alert" class="w-8 h-8 mx-auto text-bad"></i>' +
+        '<p class="mt-2 font-semibold text-ink">' + escapeHtml(e.message) + '</p>' +
+        '<button type="button" class="btn btn-neutral btn-sm mt-3" data-action="reintentar-bit">' +
+        '<i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar</button>' +
+      '</td></tr>';
+    refreshIcons();
+    showToast('Error al consultar la bitácora: ' + e.message, 'error');
+  } finally {
+    CON.bitLoading = false;
+  }
+}
+
+function renderBitacora(rows) {
+  $('#bit-count').textContent = String(rows.length);
+  const tbody = $('#bit-tbody');
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="5" class="p-8 text-center text-ink-muted">' +
+        '<i data-lucide="scroll-text" class="w-8 h-8 mx-auto text-line"></i>' +
+        '<p class="mt-2 font-semibold">No hay eventos registrados con esos filtros.</p>' +
+      '</td></tr>';
+    refreshIcons();
+    return;
+  }
+  tbody.innerHTML = rows.map(b =>
+    '<tr class="hover:bg-mist/60 align-top">' +
+      '<td class="py-2.5 px-3 mono text-xs font-semibold text-navy whitespace-nowrap">' + escapeHtml(fechaHoraLegible(b.FechaHora)) + '</td>' +
+      '<td class="py-2.5 px-3"><p class="font-semibold text-ink text-xs break-all">' + escapeHtml(b.Usuario || '—') + '</p>' +
+        '<p class="mono text-[11px] text-ink-muted">' + escapeHtml(b.Rol || '') + '</p></td>' +
+      '<td class="py-2.5 px-3">' + badgeBitacoraHtml(b.Accion) + '</td>' +
+      '<td class="py-2.5 px-3 mono text-xs text-ink">' + escapeHtml(b.Modulo || '—') + '</td>' +
+      '<td class="py-2.5 px-3 text-xs text-ink-muted max-w-[320px] break-words">' + escapeHtml(b.Detalle || '—') + '</td>' +
+    '</tr>'
+  ).join('');
+  refreshIcons();
+}
+
+/* =====================================================================
+ * Vista Reportes y Gráficas Chart.js
+ * ===================================================================== */
+const REP = {
+  loaded: false,
+  loading: false,
+  data: null,
+  charts: { hora: null, caseta: null, tipo: null, dia: null }
+};
+
+const CHART_PALETTE = ['#0F2B46', '#D96B16', '#47607E', '#B45309', '#15803D', '#6B7684'];
+
+function initReportes() {
+  const placa = $('#rep-placa');
+  placa.addEventListener('input', () => {
+    const limpia = normalizarPlaca(placa.value).slice(0, 8);
+    if (placa.value !== limpia) placa.value = limpia;
+  });
+
+  $('#rep-filtros-form').addEventListener('submit', e => {
+    e.preventDefault();
+    cargarReporte($('#btn-rep-aplicar'));
+  });
+  $('#btn-rep-limpiar').addEventListener('click', () => {
+    $('#rep-placa').value = '';
+    $('#rep-desde').value = '';
+    $('#rep-hasta').value = '';
+    $('#rep-caseta').value = '';
+    $('#rep-tipo').value = '';
+    $('#rep-estado').value = '';
+    cargarReporte($('#btn-rep-aplicar'));
+  });
+  $('#btn-rep-reintentar').addEventListener('click', () => cargarReporte($('#btn-rep-aplicar')));
+
+  $$('[data-export]').forEach(btn => {
+    btn.addEventListener('click', () => exportarReporte(btn.getAttribute('data-export'), btn));
+  });
+
+  $('#rep-frecuentes-tbody').addEventListener('click', e => {
+    const btn = e.target.closest('[data-ver-placa]');
+    if (btn) verPlacaEnConsultas(btn.getAttribute('data-ver-placa'));
+  });
+
+  VIEW_HOOKS.reportes = {
+    onShow: () => {
+      if (!REP.loaded) cargarReporte();
+    }
+  };
+}
+
+function leerFiltrosReportes() {
+  const f = {};
+  const placa = normalizarPlaca(valorCampo('rep-placa'));
+  const desde = valorCampo('rep-desde');
+  const hasta = valorCampo('rep-hasta');
+  const casetaId = valorCampo('rep-caseta');
+  const tipoUsuario = valorCampo('rep-tipo');
+  const estado = valorCampo('rep-estado');
+  if (placa) f.placa = placa;
+  if (desde) f.desde = desde;
+  if (hasta) f.hasta = hasta;
+  if (casetaId) f.casetaId = casetaId;
+  if (tipoUsuario) f.tipoUsuario = tipoUsuario;
+  if (estado) f.estado = estado;
+  return f;
+}
+
+async function cargarReporte(btn) {
+  if (!hasPerm('reportes') || REP.loading) return;
+  const filtros = leerFiltrosReportes();
+  if (filtros.desde && filtros.hasta && filtros.desde > filtros.hasta) {
+    showToast('La fecha "Desde" no puede ser mayor que la fecha "Hasta".', 'warning');
+    return;
+  }
+  REP.loading = true;
+  $('#rep-error').hidden = true;
+  if (!REP.loaded) {
+    $('#rep-skeleton').hidden = false;
+    $('#rep-kpis').hidden = true;
+  }
+  try {
+    const data = await withBusy(btn, 'Actualizando…', () => runGas('obtenerReporte', filtros));
+    if (data === undefined) return;
+    REP.data = data || {};
+    REP.loaded = true;
+    $('#rep-skeleton').hidden = true;
+    $('#rep-kpis').hidden = false;
+    renderKpisReporte(REP.data);
+    renderChartsReporte(REP.data);
+    renderMasFrecuentes(REP.data);
+    $('#rep-updated').textContent = 'Actualizado ' + horaActual() + ' · datos del período filtrado';
+  } catch (e) {
+    $('#rep-skeleton').hidden = true;
+    $('#rep-kpis').hidden = !REP.loaded;
+    $('#rep-error').hidden = false;
+    $('#rep-error-msg').textContent = e.message;
+    showToast('Error al cargar el reporte: ' + e.message, 'error');
+  } finally {
+    REP.loading = false;
+    refreshIcons();
+  }
+}
+
+function renderKpisReporte(data) {
+  const k = data.kpis || {};
+  const totalEntradas = Number(k.totalEntradas || 0);
+  const totalSalidas = Number(k.totalSalidas || 0);
+  const dentroAhora = Number(k.dentroAhora || 0);
+  const estanciaMin = Number(k.estanciaPromedioMin || 0);
+  const sinSalida = Number(k.salidasNoRegistradas || 0);
+  const pctSinSalida = Number(k.porcentajeSinSalida || 0);
+  const alertas = Number(k.alertasEstancia || 0);
+
+  $('#kpi-total-entradas').textContent = totalEntradas.toLocaleString('es-MX');
+  $('#kpi-vehiculos-unicos').textContent = Number(k.vehiculosUnicos || 0).toLocaleString('es-MX') + ' vehículos únicos';
+  $('#kpi-total-salidas').textContent = totalSalidas.toLocaleString('es-MX');
+  const tasa = totalEntradas ? Math.round((totalSalidas * 1000) / totalEntradas) / 10 : 0;
+  $('#kpi-tasa-salidas').textContent = tasa + '% con salida registrada';
+  $('#kpi-dentro-ahora').textContent = dentroAhora.toLocaleString('es-MX');
+  $('#kpi-hora-pico').textContent = k.horaPico || '-';
+
+  const porHora = Array.isArray(data.porHora) ? data.porHora : [];
+  const picoObj = porHora.find(x => x.hora === k.horaPico);
+  $('#kpi-hora-pico-detalle').textContent = (k.horaPico && k.horaPico !== '-' && picoObj)
+    ? picoObj.total + ' ingresos en esa hora'
+    : 'Sin registros en el período';
+
+  $('#kpi-estancia-min').textContent = estanciaMin + ' min';
+  $('#kpi-estancia-fmt').textContent = 'Equivalente a ' + formatHoras(estanciaMin / 60);
+
+  $('#kpi-sin-salida').textContent = sinSalida.toLocaleString('es-MX');
+  $('#kpi-pct-sin-salida').textContent = pctSinSalida + '%';
+  $('#kpi-alertas-estancia').textContent = alertas.toLocaleString('es-MX');
+
+  const cardAlertas = $('#kpi-alertas-card');
+  const badgeAlertas = $('#kpi-alertas-badge');
+  if (alertas > 0) {
+    cardAlertas.className = 'p-3 rounded border-2 border-bad bg-bad-bg/60 flex items-center justify-between gap-3';
+    badgeAlertas.className = 'badge badge-alerta';
+    badgeAlertas.textContent = 'Atención';
+  } else {
+    cardAlertas.className = 'p-3 rounded border border-line bg-mist flex items-center justify-between gap-3';
+    badgeAlertas.className = 'badge badge-ok';
+    badgeAlertas.textContent = 'Sin alertas';
+  }
+}
+
+function destruirChart(clave) {
+  if (REP.charts[clave]) {
+    REP.charts[clave].destroy();
+    REP.charts[clave] = null;
+  }
+}
+
+function chartBaseOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 250 },
+    plugins: {
+      legend: { labels: { color: '#1C2530', font: { family: 'Inter, sans-serif', size: 12, weight: '600' }, boxWidth: 12 } }
+    }
+  };
+}
+
+function renderChartsReporte(data) {
+  ['hora', 'caseta', 'tipo', 'dia'].forEach(destruirChart);
+  if (typeof window.Chart === 'undefined') {
+    ['hora', 'caseta', 'tipo', 'dia'].forEach(id => { $('#empty-chart-' + id).hidden = false; });
+    showToast('No se pudo cargar la librería de gráficas (Chart.js).', 'warning');
+    return;
+  }
+
+  // a) Barras: Afluencia por horario (00:00 a 23:00)
+  const porHora = Array.isArray(data.porHora) ? data.porHora : [];
+  const totalHora = porHora.reduce((s, x) => s + Number(x.total || 0), 0);
+  $('#empty-chart-hora').hidden = totalHora > 0;
+  if (totalHora > 0) {
+    const horaPico = (data.kpis && data.kpis.horaPico) || '';
+    const ctxHora = document.getElementById('chart-por-hora').getContext('2d');
+    REP.charts.hora = new Chart(ctxHora, {
+      type: 'bar',
+      data: {
+        labels: porHora.map(x => x.hora),
+        datasets: [{
+          label: 'Entradas',
+          data: porHora.map(x => x.total),
+          backgroundColor: porHora.map(x => x.hora === horaPico ? '#D96B16' : '#0F2B46'),
+          borderRadius: 3
+        }]
+      },
+      options: Object.assign(chartBaseOptions(), {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#4A5563', font: { family: 'JetBrains Mono, monospace', size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
+          y: { beginAtZero: true, ticks: { precision: 0, color: '#4A5563', font: { family: 'JetBrains Mono, monospace', size: 11 } }, grid: { color: '#DFE5EC' } }
+        }
+      })
+    });
+  }
+
+  // b) Barras horizontales: Entradas por caseta vs sinSalidaPorCaseta
+  const porCaseta = Array.isArray(data.porCaseta) ? data.porCaseta : [];
+  const sinCaseta = Array.isArray(data.sinSalidaPorCaseta) ? data.sinSalidaPorCaseta : [];
+  const mapEntCas = {};
+  const mapSinCas = {};
+  porCaseta.forEach(x => { mapEntCas[x.caseta] = Number(x.total || 0); });
+  sinCaseta.forEach(x => { mapSinCas[x.caseta] = Number(x.total || 0); });
+  const casetasLabels = Array.from(new Set(porCaseta.map(x => x.caseta).concat(sinCaseta.map(x => x.caseta))))
+    .sort((a, b) => (mapEntCas[b] || 0) - (mapEntCas[a] || 0));
+
+  $('#empty-chart-caseta').hidden = casetasLabels.length > 0;
+  if (casetasLabels.length > 0) {
+    const datasetsCas = [{
+      label: 'Entradas',
+      data: casetasLabels.map(c => mapEntCas[c] || 0),
+      backgroundColor: '#0F2B46',
+      borderRadius: 3
+    }];
+    if (sinCaseta.some(x => Number(x.total || 0) > 0)) {
+      datasetsCas.push({
+        label: 'Sin salida',
+        data: casetasLabels.map(c => mapSinCas[c] || 0),
+        backgroundColor: '#D96B16',
+        borderRadius: 3
+      });
+    }
+    const ctxCas = document.getElementById('chart-por-caseta').getContext('2d');
+    REP.charts.caseta = new Chart(ctxCas, {
+      type: 'bar',
+      data: { labels: casetasLabels, datasets: datasetsCas },
+      options: Object.assign(chartBaseOptions(), {
+        indexAxis: 'y',
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0, color: '#4A5563', font: { family: 'JetBrains Mono, monospace', size: 11 } }, grid: { color: '#DFE5EC' } },
+          y: { grid: { display: false }, ticks: { color: '#1C2530', font: { family: 'Inter, sans-serif', size: 11, weight: '600' } } }
+        }
+      })
+    });
+  }
+
+  // c) Dona: Distribución por tipo de usuario
+  const porTipo = Array.isArray(data.porTipo) ? data.porTipo.slice().sort((a, b) => b.total - a.total) : [];
+  const totalTipo = porTipo.reduce((s, x) => s + Number(x.total || 0), 0);
+  $('#empty-chart-tipo').hidden = totalTipo > 0;
+  const legendEl = $('#rep-tipo-legend');
+  if (totalTipo > 0) {
+    const colores = porTipo.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]);
+    const ctxTipo = document.getElementById('chart-por-tipo').getContext('2d');
+    REP.charts.tipo = new Chart(ctxTipo, {
+      type: 'doughnut',
+      data: {
+        labels: porTipo.map(x => x.tipo),
+        datasets: [{ data: porTipo.map(x => x.total), backgroundColor: colores, borderColor: '#FFFFFF', borderWidth: 2 }]
+      },
+      options: Object.assign(chartBaseOptions(), {
+        cutout: '62%',
+        plugins: { legend: { display: false } }
+      })
+    });
+    legendEl.innerHTML = porTipo.map((x, i) => {
+      const pct = Math.round((Number(x.total || 0) * 1000) / totalTipo) / 10;
+      return '<div class="flex items-center justify-between gap-2">' +
+        '<span class="flex items-center gap-2 min-w-0 truncate"><span class="w-3 h-3 rounded-sm shrink-0" style="background:' + colores[i] + '"></span>' +
+        '<span class="font-medium text-ink truncate">' + escapeHtml(x.tipo || 'Sin especificar') + '</span></span>' +
+        '<span class="mono font-bold text-navy shrink-0">' + x.total + ' (' + pct + '%)</span>' +
+      '</div>';
+    }).join('');
+  } else {
+    legendEl.innerHTML = '<p class="text-ink-muted text-center">Sin datos</p>';
+  }
+
+  // d) Tendencia por día (porDia / sinSalidaPorDia)
+  const porDia = Array.isArray(data.porDia) ? data.porDia : [];
+  const sinDia = Array.isArray(data.sinSalidaPorDia) ? data.sinSalidaPorDia : [];
+  const mapDia = {};
+  const mapSinDia = {};
+  porDia.forEach(x => { mapDia[x.dia] = Number(x.total || 0); });
+  sinDia.forEach(x => { mapSinDia[x.dia] = Number(x.total || 0); });
+  const dias = Array.from(new Set(porDia.map(x => x.dia).concat(sinDia.map(x => x.dia)))).sort();
+
+  $('#empty-chart-dia').hidden = dias.length > 0;
+  if (dias.length > 0) {
+    const labelsDia = dias.map(d => d.length >= 10 ? d.substring(8, 10) + '/' + d.substring(5, 7) : d);
+    const datasetsDia = [{
+      type: 'bar',
+      label: 'Entradas',
+      data: dias.map(d => mapDia[d] || 0),
+      backgroundColor: '#0F2B46',
+      borderRadius: 3
+    }];
+    if (sinDia.some(x => Number(x.total || 0) > 0)) {
+      datasetsDia.push({
+        type: 'line',
+        label: 'Sin salida',
+        data: dias.map(d => mapSinDia[d] || 0),
+        borderColor: '#D96B16',
+        backgroundColor: '#D96B16',
+        borderWidth: 2,
+        pointRadius: 3,
+        tension: 0.2
+      });
+    }
+    const ctxDia = document.getElementById('chart-por-dia').getContext('2d');
+    REP.charts.dia = new Chart(ctxDia, {
+      data: { labels: labelsDia, datasets: datasetsDia },
+      options: Object.assign(chartBaseOptions(), {
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#4A5563', font: { family: 'JetBrains Mono, monospace', size: 11 } } },
+          y: { beginAtZero: true, ticks: { precision: 0, color: '#4A5563', font: { family: 'JetBrains Mono, monospace', size: 11 } }, grid: { color: '#DFE5EC' } }
+        }
+      })
+    });
+  }
+}
+
+function renderMasFrecuentes(data) {
+  const lista = Array.isArray(data.masFrecuentes) ? data.masFrecuentes : [];
+  $('#rep-frecuentes-count').textContent = String(lista.length);
+  const tbody = $('#rep-frecuentes-tbody');
+  if (!lista.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="5" class="p-6 text-center text-ink-muted">No hay registros de frecuencia en el período seleccionado.</td></tr>';
+    return;
+  }
+  const maxVisitas = Math.max(1, Number(lista[0].visitas || 1));
+  const puedeConsultar = hasPerm('consulta');
+  tbody.innerHTML = lista.map((item, idx) => {
+    const pct = Math.round((Number(item.visitas || 0) * 100) / maxVisitas);
+    const placaHtml = puedeConsultar
+      ? '<button type="button" class="plate plate-solid hover:opacity-90" data-ver-placa="' + escapeHtml(item.placa) + '" title="Ver movimientos de esta placa">' + escapeHtml(item.placa) + '</button>'
+      : '<span class="plate plate-solid">' + escapeHtml(item.placa) + '</span>';
+    return '<tr class="hover:bg-mist/60">' +
+      '<td class="py-3 px-4 mono font-bold text-ink-muted">' + (idx + 1) + '</td>' +
+      '<td class="py-3 px-4">' + placaHtml + '</td>' +
+      '<td class="py-3 px-4 font-semibold text-ink">' + escapeHtml(item.titular || 'Sin titular registrado') + '</td>' +
+      '<td class="py-3 px-4"><span class="badge badge-info">' + escapeHtml(item.tipo || '—') + '</span></td>' +
+      '<td class="py-3 px-4 text-right">' +
+        '<div class="inline-flex flex-col items-end gap-1 min-w-[100px]">' +
+          '<span class="mono font-bold text-navy">' + escapeHtml(item.visitas) + (Number(item.visitas) === 1 ? ' visita' : ' visitas') + '</span>' +
+          '<div class="w-24 h-1.5 bg-mist rounded overflow-hidden"><div class="h-full bg-accent" style="width:' + pct + '%"></div></div>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+async function exportarReporte(formato, btn) {
+  if (!hasPerm('reportes')) { showToast('No tiene permiso para exportar reportes.', 'warning'); return; }
+  const filtros = leerFiltrosReportes();
+  if (filtros.desde && filtros.hasta && filtros.desde > filtros.hasta) {
+    showToast('La fecha "Desde" no puede ser mayor que la fecha "Hasta".', 'warning');
+    return;
+  }
+  try {
+    const res = await withBusy(btn, 'Exportando…', () => runGas('exportarMovimientos', filtros, formato));
+    if (!res) return;
+    descargarArchivoBase64(res);
+    showToast('Archivo generado: ' + (res.nombre || formato.toUpperCase()), 'success');
+  } catch (e) {
+    showToast('No se pudo exportar: ' + e.message, 'error');
+  }
+}
+
+/* =====================================================================
+ * Vista Catálogos, Pase QR y Gestión de Usuarios
+ * ===================================================================== */
+const CAT = {
+  actual: 'vehiculos',
+  cache: {},           // cat -> filas sin filtrar (cuando se carga sin texto)
+  rows: [],            // filas mostradas del catálogo actual
+  loading: false,
+  seq: 0,
+  titularSeq: 0,
+  deleteTarget: null,
+  usuarios: [],
+  usuariosLoaded: false,
+  usuariosLoading: false
+};
+
+const CAT_CONFIG = {
+  vehiculos: {
+    titulo: 'Vehículos',
+    nuevoLabel: '+ Nuevo Vehículo',
+    busquedaPh: 'Buscar por placa, marca, modelo o titular…',
+    tieneEstado: true,
+    estadoCampo: 'Activo',
+    cols: ['Placa', 'Vehículo', 'Tipo de titular', 'Titular', 'Estado', 'Fecha alta', 'Acciones']
+  },
+  empleados: {
+    titulo: 'Empleados',
+    nuevoLabel: '+ Nuevo Empleado',
+    busquedaPh: 'Buscar por número de empleado, nombre o departamento…',
+    tieneEstado: true,
+    estadoCampo: 'Activo',
+    cols: ['No. Empleado', 'Nombre', 'Tipo', 'Departamento', 'Contacto', 'Estado', 'Acciones']
+  },
+  estudiantes: {
+    titulo: 'Estudiantes',
+    nuevoLabel: '+ Nuevo Estudiante',
+    busquedaPh: 'Buscar por matrícula, nombre o carrera…',
+    tieneEstado: true,
+    estadoCampo: 'Activo',
+    cols: ['Matrícula', 'Nombre', 'Carrera', 'Contacto', 'Estado', 'Acciones']
+  },
+  visitantes: {
+    titulo: 'Visitantes',
+    nuevoLabel: '+ Nuevo Visitante',
+    busquedaPh: 'Buscar por nombre, identificación o motivo…',
+    tieneEstado: false,
+    estadoCampo: '',
+    cols: ['Nombre', 'Identificación', 'Motivo', 'Teléfono', 'Registro', 'Acciones']
+  },
+  casetas: {
+    titulo: 'Casetas',
+    nuevoLabel: '+ Nueva Caseta',
+    busquedaPh: 'Buscar por nombre, ubicación o tipo…',
+    tieneEstado: true,
+    estadoCampo: 'Activa',
+    cols: ['Nombre', 'Ubicación', 'Tipo', 'Estado', 'Acciones']
+  }
+};
+
+const DOMINIOS_INST = ['uat.edu.mx', 'docentes.uat.edu.mx', 'alumnos.uat.edu.mx'];
+const ROLES_VALIDOS = ['Administrador', 'Operador de Caseta', 'Consulta'];
+const REGEX_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const buscarCatalogoDebounced = debounce(() => cargarCatalogoActual(), 250);
+
+function puedeEscribirCatalogo(cat) {
+  if (cat === 'vehiculos' || cat === 'visitantes') return hasPerm('vehiculo.escribir');
+  return hasPerm('catalogo.escribir');
+}
+
+function initCatalogos() {
+  $$('[data-cat-tab]').forEach(btn => {
+    btn.addEventListener('click', () => cambiarTabCatalogo(btn.getAttribute('data-cat-tab')));
+  });
+
+  $('#cat-search').addEventListener('input', buscarCatalogoDebounced);
+  $('#cat-estado-filter').addEventListener('change', renderCatalogoTabla);
+  $('#btn-cat-refresh').addEventListener('click', () => {
+    delete CAT.cache[CAT.actual];
+    cargarCatalogoActual();
+  });
+  $('#btn-cat-nuevo').addEventListener('click', () => abrirModalCatalogo(''));
+
+  $('#cat-tbody').addEventListener('click', e => {
+    const btn = e.target.closest('[data-cat-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-cat-action');
+    const id = btn.getAttribute('data-id');
+    if (action === 'qr') abrirModalPaseQR(id);
+    else if (action === 'editar') abrirModalCatalogo(id);
+    else if (action === 'eliminar') abrirModalEliminarCatalogo(id);
+    else if (action === 'reintentar') cargarCatalogoActual();
+  });
+
+  $('#veh-f-placa').addEventListener('input', e => {
+    const limpia = normalizarPlaca(e.target.value).slice(0, 8);
+    if (e.target.value !== limpia) e.target.value = limpia;
+  });
+  $('#veh-f-tipo-titular').addEventListener('change', () => {
+    cargarOpcionesTitularVehiculo(valorCampo('veh-f-tipo-titular'), '');
+  });
+
+  $('#form-catalogo').addEventListener('submit', e => {
+    e.preventDefault();
+    guardarRegistroCatalogo();
+  });
+  $('#btn-cat-confirmar-eliminar').addEventListener('click', confirmarEliminarCatalogo);
+  $('#btn-qr-imprimir').addEventListener('click', () => window.print());
+
+  // Gestión de usuarios
+  $('#btn-ir-usuarios').addEventListener('click', () => {
+    const sec = $('#sec-usuarios');
+    if (sec && !sec.hidden) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('#usr-search').addEventListener('input', renderUsuariosTabla);
+  $('#btn-usr-refresh').addEventListener('click', () => cargarUsuarios());
+  $('#btn-usr-nuevo').addEventListener('click', () => abrirModalUsuario(''));
+  $('#form-usuario').addEventListener('submit', e => {
+    e.preventDefault();
+    guardarRegistroUsuario();
+  });
+  $('#usr-tbody').addEventListener('click', e => {
+    const btn = e.target.closest('[data-usr-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-usr-action');
+    const id = btn.getAttribute('data-id');
+    if (action === 'editar') abrirModalUsuario(id);
+    else if (action === 'toggle') alternarEstadoUsuario(id, btn.getAttribute('data-activo') === 'true', btn);
+    else if (action === 'reintentar') cargarUsuarios();
+  });
+
+  VIEW_HOOKS.catalogos = {
+    onShow: () => {
+      actualizarControlesCatalogo();
+      if (!CAT.cache[CAT.actual]) cargarCatalogoActual();
+      else renderCatalogoTabla();
+      if (hasPerm('usuarios') && !CAT.usuariosLoaded) cargarUsuarios();
+    }
+  };
+}
+
+function actualizarControlesCatalogo() {
+  const cfg = CAT_CONFIG[CAT.actual];
+  $$('[data-cat-tab]').forEach(btn => {
+    const activo = btn.getAttribute('data-cat-tab') === CAT.actual;
+    btn.setAttribute('aria-selected', String(activo));
+    btn.className = activo
+      ? 'flex items-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-t border-b-2 border-accent bg-white text-navy whitespace-nowrap shrink-0'
+      : 'flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-t border-b-2 border-transparent text-ink-muted hover:text-navy whitespace-nowrap shrink-0';
+    const badge = btn.querySelector('.badge');
+    if (badge) badge.className = 'badge ' + (activo ? 'badge-count' : 'badge-info');
+  });
+
+  $('#cat-search').placeholder = cfg.busquedaPh;
+  $('#cat-estado-wrap').hidden = !cfg.tieneEstado;
+  if (!cfg.tieneEstado) $('#cat-estado-filter').value = '';
+
+  const puedeEscribir = puedeEscribirCatalogo(CAT.actual);
+  const btnNuevo = $('#btn-cat-nuevo');
+  btnNuevo.hidden = !puedeEscribir;
+  $('#btn-cat-nuevo-label').textContent = cfg.nuevoLabel;
+
+  let notaPerm = 'Solo lectura';
+  if (hasPerm('catalogo.escribir')) notaPerm = 'Alta, edición y eliminación habilitadas';
+  else if (puedeEscribir) notaPerm = 'Alta y edición habilitadas en ' + cfg.titulo.toLowerCase();
+  $('#cat-perm-hint').textContent = notaPerm;
+}
+
+function cambiarTabCatalogo(cat) {
+  if (!CAT_CONFIG[cat] || CAT.actual === cat) return;
+  buscarCatalogoDebounced.cancel();
+  CAT.actual = cat;
+  $('#cat-search').value = '';
+  $('#cat-estado-filter').value = '';
+  actualizarControlesCatalogo();
+  cargarCatalogoActual();
+}
+
+async function cargarCatalogoActual() {
+  if (!hasPerm('catalogo.leer')) return;
+  const cat = CAT.actual;
+  const texto = valorCampo('cat-search');
+  const seq = ++CAT.seq;
+  CAT.loading = true;
+  const cols = CAT_CONFIG[cat].cols.length;
+  renderTablaSkeleton('cat-tbody', cols, 5);
+  renderCatalogoHeader();
+
+  try {
+    const rows = await runGas('listarCatalogo', cat, texto);
+    if (seq !== CAT.seq || cat !== CAT.actual) return;
+    CAT.rows = Array.isArray(rows) ? rows : [];
+    if (!texto) {
+      CAT.cache[cat] = CAT.rows;
+      $('#cat-count-' + cat).textContent = String(CAT.rows.length);
+    }
+    $('#cat-updated').textContent = 'Actualizado ' + horaActual() + ' · Catálogo: ' + CAT_CONFIG[cat].titulo;
+    renderCatalogoTabla();
+  } catch (e) {
+    if (seq !== CAT.seq || cat !== CAT.actual) return;
+    $('#cat-tbody').innerHTML =
+      '<tr><td colspan="' + cols + '" class="p-6 text-center">' +
+        '<i data-lucide="circle-alert" class="w-8 h-8 mx-auto text-bad"></i>' +
+        '<p class="mt-2 font-semibold text-ink">' + escapeHtml(e.message) + '</p>' +
+        '<button type="button" class="btn btn-neutral btn-sm mt-3" data-cat-action="reintentar">' +
+        '<i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar</button>' +
+      '</td></tr>';
+    $('#cat-footer-count').textContent = 'Error al cargar';
+    refreshIcons();
+    showToast('Error al cargar ' + CAT_CONFIG[cat].titulo + ': ' + e.message, 'error');
+  } finally {
+    if (seq === CAT.seq) CAT.loading = false;
+  }
+}
+
+function renderCatalogoHeader() {
+  const cols = CAT_CONFIG[CAT.actual].cols;
+  $('#cat-thead').innerHTML =
+    '<tr class="border-b border-line bg-mist/60">' +
+    cols.map((c, idx) =>
+      '<th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted ' +
+      (idx === cols.length - 1 ? 'text-right' : '') + '">' + escapeHtml(c) + '</th>'
+    ).join('') + '</tr>';
+}
+
+function badgeActivoHtml(activo) {
+  return esActivo(activo)
+    ? '<span class="badge badge-ok">Activo</span>'
+    : '<span class="badge badge-bad">Inactivo</span>';
+}
+
+function accionesFilaCatalogoHtml(cat, r, etiqueta) {
+  const puedeEditar = puedeEscribirCatalogo(cat);
+  const puedeEliminar = hasPerm('catalogo.escribir');
+  let html = '<div class="inline-flex items-center justify-end gap-1">';
+  if (cat === 'vehiculos') {
+    html += '<button type="button" class="btn btn-neutral btn-sm !min-h-[36px] !px-2.5" data-cat-action="qr" data-id="' +
+      escapeHtml(r.ID) + '" title="Ver e imprimir Pase QR de ' + escapeHtml(etiqueta) + '" aria-label="Pase QR de ' + escapeHtml(etiqueta) + '">' +
+      '<i data-lucide="qr-code" class="w-4 h-4 text-accent"></i><span class="hidden sm:inline">Pase QR</span></button>';
+  }
+  if (puedeEditar) {
+    html += '<button type="button" class="btn btn-neutral btn-icon !min-h-[36px] !w-9" data-cat-action="editar" data-id="' +
+      escapeHtml(r.ID) + '" title="Editar ' + escapeHtml(etiqueta) + '" aria-label="Editar ' + escapeHtml(etiqueta) + '">' +
+      '<i data-lucide="pencil" class="w-4 h-4"></i></button>';
+  }
+  if (puedeEliminar) {
+    html += '<button type="button" class="btn btn-danger btn-icon !min-h-[36px] !w-9" data-cat-action="eliminar" data-id="' +
+      escapeHtml(r.ID) + '" title="Eliminar ' + escapeHtml(etiqueta) + '" aria-label="Eliminar ' + escapeHtml(etiqueta) + '">' +
+      '<i data-lucide="trash-2" class="w-4 h-4"></i></button>';
+  }
+  if (cat !== 'vehiculos' && !puedeEditar && !puedeEliminar) {
+    html += '<span class="mono text-[11px] text-ink-faint">Solo lectura</span>';
+  }
+  return html + '</div>';
+}
+
+function filaCatalogoHtml(cat, r) {
+  if (cat === 'vehiculos') {
+    const desc = [r.Marca, r.Modelo, r.Color].filter(Boolean).join(' · ') || 'Sin especificar';
+    const inactivo = !esActivo(r.Activo);
+    return '<tr class="hover:bg-mist/60 ' + (inactivo ? 'opacity-75' : '') + '">' +
+      '<td class="py-3 px-3"><span class="plate ' + (inactivo ? '' : 'plate-solid') + '">' + escapeHtml(r.Placa) + '</span></td>' +
+      '<td class="py-3 px-3 font-medium text-ink">' + escapeHtml(desc) + '</td>' +
+      '<td class="py-3 px-3"><span class="badge badge-info">' + escapeHtml(r.TipoTitular || '—') + '</span></td>' +
+      '<td class="py-3 px-3"><p class="font-semibold text-ink">' + escapeHtml(r.TitularNombre || 'Sin titular') + '</p>' +
+        (r.TitularID ? '<p class="mono text-[11px] text-ink-muted">' + escapeHtml(r.TitularID) + '</p>' : '') + '</td>' +
+      '<td class="py-3 px-3">' + badgeActivoHtml(r.Activo) + '</td>' +
+      '<td class="py-3 px-3 mono text-xs text-ink-muted whitespace-nowrap">' + escapeHtml(fechaHoraCorta(r.FechaAlta)) + '</td>' +
+      '<td class="py-3 px-3 text-right">' + accionesFilaCatalogoHtml(cat, r, r.Placa) + '</td>' +
+    '</tr>';
+  }
+  if (cat === 'empleados') {
+    const contacto = [r.Correo, r.Telefono].filter(Boolean).join(' · ') || '—';
+    return '<tr class="hover:bg-mist/60 ' + (!esActivo(r.Activo) ? 'opacity-75' : '') + '">' +
+      '<td class="py-3 px-3 mono font-bold text-navy">' + escapeHtml(r.NumEmpleado) + '</td>' +
+      '<td class="py-3 px-3 font-semibold text-ink">' + escapeHtml(r.Nombre) + '</td>' +
+      '<td class="py-3 px-3"><span class="badge badge-info">' + escapeHtml(r.Tipo || '—') + '</span></td>' +
+      '<td class="py-3 px-3 text-ink-muted">' + escapeHtml(r.Departamento || '—') + '</td>' +
+      '<td class="py-3 px-3 text-xs text-ink-muted break-all">' + escapeHtml(contacto) + '</td>' +
+      '<td class="py-3 px-3">' + badgeActivoHtml(r.Activo) + '</td>' +
+      '<td class="py-3 px-3 text-right">' + accionesFilaCatalogoHtml(cat, r, r.Nombre) + '</td>' +
+    '</tr>';
+  }
+  if (cat === 'estudiantes') {
+    const contacto = [r.Correo, r.Telefono].filter(Boolean).join(' · ') || '—';
+    return '<tr class="hover:bg-mist/60 ' + (!esActivo(r.Activo) ? 'opacity-75' : '') + '">' +
+      '<td class="py-3 px-3 mono font-bold text-navy">' + escapeHtml(r.Matricula) + '</td>' +
+      '<td class="py-3 px-3 font-semibold text-ink">' + escapeHtml(r.Nombre) + '</td>' +
+      '<td class="py-3 px-3 text-ink-muted">' + escapeHtml(r.Carrera || '—') + '</td>' +
+      '<td class="py-3 px-3 text-xs text-ink-muted break-all">' + escapeHtml(contacto) + '</td>' +
+      '<td class="py-3 px-3">' + badgeActivoHtml(r.Activo) + '</td>' +
+      '<td class="py-3 px-3 text-right">' + accionesFilaCatalogoHtml(cat, r, r.Nombre) + '</td>' +
+    '</tr>';
+  }
+  if (cat === 'visitantes') {
+    return '<tr class="hover:bg-mist/60">' +
+      '<td class="py-3 px-3 font-semibold text-ink">' + escapeHtml(r.Nombre) + '</td>' +
+      '<td class="py-3 px-3 mono text-xs font-semibold text-navy">' + escapeHtml(r.Identificacion || '—') + '</td>' +
+      '<td class="py-3 px-3 text-ink-muted max-w-[240px] break-words">' + escapeHtml(r.Motivo || '—') + '</td>' +
+      '<td class="py-3 px-3 mono text-xs text-ink-muted">' + escapeHtml(r.Telefono || '—') + '</td>' +
+      '<td class="py-3 px-3 mono text-xs text-ink-muted whitespace-nowrap">' + escapeHtml(fechaHoraCorta(r.FechaRegistro)) + '</td>' +
+      '<td class="py-3 px-3 text-right">' + accionesFilaCatalogoHtml(cat, r, r.Nombre) + '</td>' +
+    '</tr>';
+  }
+  // casetas
+  return '<tr class="hover:bg-mist/60 ' + (!esActivo(r.Activa) ? 'opacity-75' : '') + '">' +
+    '<td class="py-3 px-3 font-semibold text-navy">' + escapeHtml(r.Nombre) + '</td>' +
+    '<td class="py-3 px-3 text-ink-muted">' + escapeHtml(r.Ubicacion || '—') + '</td>' +
+    '<td class="py-3 px-3"><span class="badge badge-info">' + escapeHtml(r.Tipo || 'Entrada/Salida') + '</span></td>' +
+    '<td class="py-3 px-3">' + badgeActivoHtml(r.Activa) + '</td>' +
+    '<td class="py-3 px-3 text-right">' + accionesFilaCatalogoHtml(cat, r, r.Nombre) + '</td>' +
+  '</tr>';
+}
+
+function renderCatalogoTabla() {
+  const cat = CAT.actual;
+  const cfg = CAT_CONFIG[cat];
+  renderCatalogoHeader();
+
+  const estadoFiltro = cfg.tieneEstado ? valorCampo('cat-estado-filter') : '';
+  const filas = CAT.rows.filter(r => {
+    if (!estadoFiltro) return true;
+    const act = esActivo(r[cfg.estadoCampo]);
+    return estadoFiltro === 'activos' ? act : !act;
+  });
+
+  $('#cat-footer-count').textContent = filas.length + (filas.length === 1 ? ' registro mostrado' : ' registros mostrados');
+  const tbody = $('#cat-tbody');
+  if (!filas.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="' + cfg.cols.length + '" class="p-8 text-center text-ink-muted">' +
+        '<i data-lucide="database" class="w-8 h-8 mx-auto text-line"></i>' +
+        '<p class="mt-2 font-semibold">No hay registros en ' + escapeHtml(cfg.titulo) + ' con el filtro actual.</p>' +
+      '</td></tr>';
+    refreshIcons();
+    return;
+  }
+
+  tbody.innerHTML = filas.map(r => filaCatalogoHtml(cat, r)).join('');
+  refreshIcons();
+}
+
+/* ---------- Modal Alta / Edición de Catálogo ---------- */
+async function cargarOpcionesTitularVehiculo(tipo, selectedId) {
+  const sel = $('#veh-f-titular-id');
+  const label = $('#veh-f-titular-label');
+  const hint = $('#veh-f-titular-hint');
+  const mapa = { Estudiante: 'estudiantes', Docente: 'empleados', Administrativo: 'empleados', Visitante: 'visitantes' };
+  const catOrigen = mapa[tipo] || 'estudiantes';
+  const esVisitante = tipo === 'Visitante';
+
+  label.textContent = esVisitante ? 'Visitante (opcional)' : 'Titular (' + tipo + ') *';
+  sel.disabled = true;
+  sel.innerHTML = '<option value="">Cargando catálogo de ' + escapeHtml(catOrigen) + '…</option>';
+  hint.textContent = '';
+
+  const seq = ++CAT.titularSeq;
+  try {
+    let lista = CAT.cache[catOrigen];
+    if (!lista) {
+      const data = await runGas('listarCatalogo', catOrigen, '');
+      lista = Array.isArray(data) ? data : [];
+      CAT.cache[catOrigen] = lista;
+      $('#cat-count-' + catOrigen).textContent = String(lista.length);
+    }
+    if (seq !== CAT.titularSeq) return;
+
+    let filtrados = lista;
+    if (tipo === 'Docente' || tipo === 'Administrativo') {
+      filtrados = lista.filter(x => x.Tipo === tipo);
+    }
+
+    const placeholder = esVisitante
+      ? '— Sin visitante vinculado (opcional) —'
+      : (filtrados.length ? 'Seleccione el titular…' : 'No hay registros de tipo ' + tipo);
+    let opts = '<option value="">' + escapeHtml(placeholder) + '</option>';
+
+    opts += filtrados.map(item => {
+      const clave = item.Matricula || item.NumEmpleado || item.Identificacion || item.ID;
+      const inactivo = item.Activo !== undefined && !esActivo(item.Activo) ? ' [Inactivo]' : '';
+      return '<option value="' + escapeHtml(item.ID) + '">' +
+        escapeHtml(item.Nombre + ' (' + clave + ')' + inactivo) + '</option>';
+    }).join('');
+
+    sel.innerHTML = opts;
+    sel.disabled = !esVisitante && filtrados.length === 0;
+    if (selectedId && filtrados.some(x => String(x.ID) === String(selectedId))) {
+      sel.value = selectedId;
+    } else {
+      sel.value = '';
+    }
+    hint.textContent = filtrados.length
+      ? filtrados.length + ' opciones disponibles en ' + CAT_CONFIG[catOrigen].titulo + '.'
+      : (esVisitante ? 'Puede guardar el vehículo sin vincular a un visitante específico.' : 'Debe registrar primero un ' + tipo + ' en su catálogo.');
+  } catch (e) {
+    if (seq !== CAT.titularSeq) return;
+    sel.innerHTML = '<option value="">Error al cargar titulares</option>';
+    sel.disabled = false;
+    hint.textContent = e.message;
+  }
+}
+
+function abrirModalCatalogo(id) {
+  const cat = CAT.actual;
+  if (!puedeEscribirCatalogo(cat)) {
+    showToast('Su rol no tiene permiso para modificar ' + CAT_CONFIG[cat].titulo + '.', 'warning');
+    return;
+  }
+  const reg = id ? CAT.rows.find(r => String(r.ID) === String(id)) : null;
+  $('#cat-f-id').value = reg ? reg.ID : '';
+  $('#modal-catalogo-title').textContent = (reg ? 'Editar ' : 'Nuevo en ') + CAT_CONFIG[cat].titulo;
+
+  ['vehiculos', 'empleados', 'estudiantes', 'visitantes', 'casetas'].forEach(c => {
+    $('#form-sec-' + c).hidden = c !== cat;
+  });
+
+  if (cat === 'vehiculos') {
+    const tipo = reg ? (reg.TipoTitular || 'Estudiante') : 'Estudiante';
+    $('#veh-f-placa').value = reg ? (reg.Placa || '') : '';
+    $('#veh-f-tipo-titular').value = tipo;
+    $('#veh-f-marca').value = reg ? (reg.Marca || '') : '';
+    $('#veh-f-modelo').value = reg ? (reg.Modelo || '') : '';
+    $('#veh-f-color').value = reg ? (reg.Color || '') : '';
+    $('#veh-f-activo').checked = reg ? esActivo(reg.Activo) : true;
+    cargarOpcionesTitularVehiculo(tipo, reg ? reg.TitularID : '');
+  } else if (cat === 'empleados') {
+    $('#emp-f-num').value = reg ? (reg.NumEmpleado || '') : '';
+    $('#emp-f-nombre').value = reg ? (reg.Nombre || '') : '';
+    $('#emp-f-tipo').value = reg ? (reg.Tipo || 'Docente') : 'Docente';
+    $('#emp-f-depto').value = reg ? (reg.Departamento || '') : '';
+    $('#emp-f-correo').value = reg ? (reg.Correo || '') : '';
+    $('#emp-f-telefono').value = reg ? (reg.Telefono || '') : '';
+    $('#emp-f-activo').checked = reg ? esActivo(reg.Activo) : true;
+  } else if (cat === 'estudiantes') {
+    $('#est-f-matricula').value = reg ? (reg.Matricula || '') : '';
+    $('#est-f-nombre').value = reg ? (reg.Nombre || '') : '';
+    $('#est-f-carrera').value = reg ? (reg.Carrera || '') : '';
+    $('#est-f-correo').value = reg ? (reg.Correo || '') : '';
+    $('#est-f-telefono').value = reg ? (reg.Telefono || '') : '';
+    $('#est-f-activo').checked = reg ? esActivo(reg.Activo) : true;
+  } else if (cat === 'visitantes') {
+    $('#vis-f-nombre').value = reg ? (reg.Nombre || '') : '';
+    $('#vis-f-identificacion').value = reg ? (reg.Identificacion || '') : '';
+    $('#vis-f-motivo').value = reg ? (reg.Motivo || '') : '';
+    $('#vis-f-telefono').value = reg ? (reg.Telefono || '') : '';
+  } else if (cat === 'casetas') {
+    $('#cas-f-nombre').value = reg ? (reg.Nombre || '') : '';
+    $('#cas-f-ubicacion').value = reg ? (reg.Ubicacion || '') : '';
+    $('#cas-f-tipo').value = reg ? (reg.Tipo || 'Entrada/Salida') : 'Entrada/Salida';
+    $('#cas-f-activa').checked = reg ? esActivo(reg.Activa) : true;
+  }
+
+  openModal('modal-catalogo');
+}
+
+function construirPayloadCatalogo(cat) {
+  const id = valorCampo('cat-f-id');
+  const datos = {};
+  if (id) datos.ID = id;
+
+  const validarTel = raw => {
+    if (!raw) return '';
+    const d = String(raw).replace(/\D/g, '');
+    if (d.length !== 10) throw new Error('El teléfono debe tener 10 dígitos.');
+    return d;
+  };
+  const validarCorreo = correo => {
+    if (correo && !REGEX_CORREO.test(correo)) throw new Error('Correo con formato inválido.');
+    return correo;
+  };
+
+  if (cat === 'vehiculos') {
+    const placa = normalizarPlaca(valorCampo('veh-f-placa'));
+    if (!REGEX_PLACA.test(placa)) throw new Error('Placa inválida (5 a 8 caracteres alfanuméricos).');
+    const tipo = valorCampo('veh-f-tipo-titular');
+    const titularId = valorCampo('veh-f-titular-id');
+    if (tipo !== 'Visitante' && !titularId) throw new Error('Debe seleccionar el titular del vehículo.');
+    datos.Placa = placa;
+    datos.TipoTitular = tipo;
+    datos.TitularID = titularId;
+    datos.Marca = valorCampo('veh-f-marca');
+    datos.Modelo = valorCampo('veh-f-modelo');
+    datos.Color = valorCampo('veh-f-color');
+    datos.Activo = $('#veh-f-activo').checked;
+  } else if (cat === 'empleados') {
+    const num = valorCampo('emp-f-num');
+    const nombre = valorCampo('emp-f-nombre');
+    const tipo = valorCampo('emp-f-tipo');
+    if (!num) throw new Error('El número de empleado es obligatorio.');
+    if (!nombre) throw new Error('El nombre del empleado es obligatorio.');
+    if (tipo !== 'Docente' && tipo !== 'Administrativo') throw new Error('Seleccione el tipo de empleado.');
+    datos.NumEmpleado = num;
+    datos.Nombre = nombre;
+    datos.Tipo = tipo;
+    datos.Departamento = valorCampo('emp-f-depto');
+    datos.Correo = validarCorreo(valorCampo('emp-f-correo'));
+    datos.Telefono = validarTel(valorCampo('emp-f-telefono'));
+    datos.Activo = $('#emp-f-activo').checked;
+  } else if (cat === 'estudiantes') {
+    const mat = valorCampo('est-f-matricula');
+    const nombre = valorCampo('est-f-nombre');
+    if (!mat) throw new Error('La matrícula es obligatoria.');
+    if (!nombre) throw new Error('El nombre del estudiante es obligatorio.');
+    datos.Matricula = mat;
+    datos.Nombre = nombre;
+    datos.Carrera = valorCampo('est-f-carrera');
+    datos.Correo = validarCorreo(valorCampo('est-f-correo'));
+    datos.Telefono = validarTel(valorCampo('est-f-telefono'));
+    datos.Activo = $('#est-f-activo').checked;
+  } else if (cat === 'visitantes') {
+    const nombre = valorCampo('vis-f-nombre');
+    const ident = valorCampo('vis-f-identificacion');
+    if (!nombre) throw new Error('El nombre del visitante es obligatorio.');
+    if (!ident) throw new Error('La identificación del visitante es obligatoria.');
+    datos.Nombre = nombre;
+    datos.Identificacion = ident;
+    datos.Motivo = valorCampo('vis-f-motivo');
+    datos.Telefono = validarTel(valorCampo('vis-f-telefono'));
+  } else if (cat === 'casetas') {
+    const nombre = valorCampo('cas-f-nombre');
+    if (!nombre) throw new Error('El nombre de la caseta es obligatorio.');
+    datos.Nombre = nombre;
+    datos.Ubicacion = valorCampo('cas-f-ubicacion');
+    datos.Tipo = valorCampo('cas-f-tipo') || 'Entrada/Salida';
+    datos.Activa = $('#cas-f-activa').checked;
+  }
+  return datos;
+}
+
+async function guardarRegistroCatalogo() {
+  const cat = CAT.actual;
+  let datos;
+  try {
+    datos = construirPayloadCatalogo(cat);
+  } catch (e) {
+    showToast(e.message, 'warning');
+    return;
+  }
+  const btn = $('#btn-cat-guardar');
+  try {
+    const r = await withBusy(btn, 'Guardando…', () => runGas('guardarCatalogo', cat, datos));
+    if (!r) return;
+    delete CAT.cache[cat];
+    if (cat === 'empleados' || cat === 'estudiantes' || cat === 'visitantes') delete CAT.cache.vehiculos;
+    if (cat === 'casetas') cargarCasetas();
+    closeModal('modal-catalogo');
+    showToast(datos.ID ? 'Registro actualizado correctamente.' : 'Registro creado correctamente.', 'success');
+    cargarCatalogoActual();
+  } catch (e) {
+    showToast(e.message, 'error', 7000);
+  }
+}
+
+/* ---------- Eliminación con integridad referencial ---------- */
+function abrirModalEliminarCatalogo(id) {
+  if (!hasPerm('catalogo.escribir')) {
+    showToast('Solo los administradores pueden eliminar registros.', 'warning');
+    return;
+  }
+  const cat = CAT.actual;
+  const reg = CAT.rows.find(r => String(r.ID) === String(id));
+  if (!reg) return;
+  CAT.deleteTarget = { cat: cat, id: reg.ID };
+  const nombre = reg.Placa || reg.Nombre || reg.ID;
+  $('#del-cat-detalle').textContent = CAT_CONFIG[cat].titulo + ' · ' + nombre + ' (' + reg.ID + ')';
+  openModal('modal-cat-eliminar');
+}
+
+async function confirmarEliminarCatalogo() {
+  if (!CAT.deleteTarget) return;
+  const target = CAT.deleteTarget;
+  const btn = $('#btn-cat-confirmar-eliminar');
+  try {
+    const ok = await withBusy(btn, 'Eliminando…', () => runGas('eliminarCatalogo', target.cat, target.id));
+    if (!ok) return;
+    delete CAT.cache[target.cat];
+    if (target.cat === 'casetas') cargarCasetas();
+    CAT.deleteTarget = null;
+    closeModal('modal-cat-eliminar');
+    showToast('Registro eliminado del catálogo.', 'success');
+    cargarCatalogoActual();
+  } catch (e) {
+    closeModal('modal-cat-eliminar');
+    showToast(e.message, 'error', 8000);
+  }
+}
+
+/* ---------- Modal Pase Vehicular QR (qrcodejs) ---------- */
+function abrirModalPaseQR(id) {
+  const v = CAT.rows.find(r => String(r.ID) === String(id)) ||
+    (CAT.cache.vehiculos || []).find(r => String(r.ID) === String(id));
+  if (!v) return;
+
+  const placa = normalizarPlaca(v.Placa);
+  const activo = esActivo(v.Activo);
+  const codeHost = $('#qr-pase-code');
+  codeHost.innerHTML = '';
+
+  if (typeof window.QRCode === 'undefined') {
+    codeHost.innerHTML = '<p class="text-xs text-bad font-semibold p-4">No se pudo cargar la librería qrcodejs.</p>';
+  } else {
+    new QRCode(codeHost, {
+      text: placa,
+      width: 176,
+      height: 176,
+      colorDark: '#0F2B46',
+      colorLight: '#FFFFFF',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  }
+
+  $('#qr-pase-placa').textContent = placa;
+  $('#qr-pase-titular').textContent = v.TitularNombre || 'Sin titular';
+  $('#qr-pase-tipo').textContent = v.TipoTitular || '—';
+  $('#qr-pase-vehiculo').textContent = [v.Marca, v.Modelo].filter(Boolean).join(' ') || 'No especificado';
+  $('#qr-pase-color').textContent = v.Color || 'No especificado';
+
+  const estadoEl = $('#qr-pase-estado');
+  estadoEl.className = 'badge ' + (activo ? 'badge-ok' : 'badge-bad');
+  estadoEl.textContent = activo ? 'Activo' : 'Baja';
+  $('#qr-pase-id').textContent = [v.ID, v.FechaAlta ? 'Alta ' + fechaHoraCorta(v.FechaAlta) : ''].filter(Boolean).join(' · ');
+
+  openModal('modal-pase-qr');
+}
+
+/* ---------- Gestión de Usuarios (solo Admin) ---------- */
+async function cargarUsuarios() {
+  if (!hasPerm('usuarios') || CAT.usuariosLoading) return;
+  CAT.usuariosLoading = true;
+  renderTablaSkeleton('usr-tbody', 7, 4);
+  try {
+    const rows = await runGas('listarUsuarios');
+    CAT.usuarios = Array.isArray(rows) ? rows : [];
+    CAT.usuariosLoaded = true;
+    $('#usr-updated').textContent = 'Actualizado ' + horaActual() + ' · cuentas registradas en Usuarios';
+    renderUsuariosTabla();
+  } catch (e) {
+    $('#usr-tbody').innerHTML =
+      '<tr><td colspan="7" class="p-6 text-center">' +
+        '<i data-lucide="circle-alert" class="w-8 h-8 mx-auto text-bad"></i>' +
+        '<p class="mt-2 font-semibold text-ink">' + escapeHtml(e.message) + '</p>' +
+        '<button type="button" class="btn btn-neutral btn-sm mt-3" data-usr-action="reintentar">' +
+        '<i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar</button>' +
+      '</td></tr>';
+    refreshIcons();
+    showToast('Error al cargar usuarios: ' + e.message, 'error');
+  } finally {
+    CAT.usuariosLoading = false;
+  }
+}
+
+function renderUsuariosTabla() {
+  const filtro = valorCampo('usr-search').toLowerCase();
+  const filas = CAT.usuarios.filter(u => {
+    if (!filtro) return true;
+    return [u.Correo, u.Nombre, u.Rol, casetaNombre(u.CasetaAsignada)].some(
+      v => String(v || '').toLowerCase().indexOf(filtro) !== -1
+    );
+  });
+
+  $('#usr-count').textContent = String(filas.length);
+  const tbody = $('#usr-tbody');
+  if (!filas.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="7" class="p-6 text-center text-ink-muted">No hay usuarios que coincidan con la búsqueda.</td></tr>';
+    return;
+  }
+
+  const miCorreo = String((STATE.session && STATE.session.correo) || '').toLowerCase();
+  tbody.innerHTML = filas.map(u => {
+    const activo = esActivo(u.Activo);
+    const esYo = String(u.Correo || '').toLowerCase() === miCorreo;
+    const casetaMatch = buscarCaseta(u.CasetaAsignada);
+    const casetaTxt = u.CasetaAsignada ? (casetaMatch ? casetaMatch.Nombre : u.CasetaAsignada) : 'Sin asignar';
+    const rolCls = u.Rol === 'Administrador' ? 'badge-warn' : u.Rol === 'Operador de Caseta' ? 'badge-info' : 'badge-salio';
+    const fechas = 'Alta: ' + fechaHoraCorta(u.FechaAlta) +
+      (u.UltimoAcceso ? ' · Últ: ' + fechaHoraCorta(u.UltimoAcceso) : '');
+
+    return '<tr class="hover:bg-mist/60 ' + (activo ? '' : 'opacity-75') + '">' +
+      '<td class="py-3 px-3 text-xs font-semibold text-navy break-all">' + escapeHtml(u.Correo) +
+        (esYo ? ' <span class="badge badge-info ml-1">Tú</span>' : '') + '</td>' +
+      '<td class="py-3 px-3 font-semibold text-ink">' + escapeHtml(u.Nombre) + '</td>' +
+      '<td class="py-3 px-3"><span class="badge ' + rolCls + '">' + escapeHtml(u.Rol) + '</span></td>' +
+      '<td class="py-3 px-3 text-xs text-ink-muted">' + escapeHtml(casetaTxt) + '</td>' +
+      '<td class="py-3 px-3">' + badgeActivoHtml(u.Activo) + '</td>' +
+      '<td class="py-3 px-3 mono text-[11px] text-ink-muted whitespace-nowrap">' + escapeHtml(fechas) + '</td>' +
+      '<td class="py-3 px-3 text-right">' +
+        '<div class="inline-flex items-center justify-end gap-1">' +
+          '<button type="button" class="btn btn-neutral btn-icon !min-h-[36px] !w-9" data-usr-action="editar" data-id="' +
+            escapeHtml(u.ID) + '" title="Editar usuario" aria-label="Editar a ' + escapeHtml(u.Correo) + '">' +
+            '<i data-lucide="pencil" class="w-4 h-4"></i></button>' +
+          '<button type="button" class="btn ' + (activo ? 'btn-danger' : 'btn-neutral') + ' btn-sm !min-h-[36px]" data-usr-action="toggle" data-id="' +
+            escapeHtml(u.ID) + '" data-activo="' + (!activo) + '"' + (esYo && activo ? ' disabled title="No puede desactivar su propia cuenta"' : '') + '>' +
+            '<i data-lucide="' + (activo ? 'user-x' : 'user-check') + '" class="w-4 h-4"></i>' +
+            '<span>' + (activo ? 'Desactivar' : 'Activar') + '</span></button>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  refreshIcons();
+}
+
+function abrirModalUsuario(id) {
+  if (!hasPerm('usuarios')) { showToast('No tiene permiso para gestionar usuarios.', 'warning'); return; }
+  const u = id ? CAT.usuarios.find(x => String(x.ID) === String(id)) : null;
+
+  const selCaseta = $('#usr-f-caseta');
+  selCaseta.innerHTML = '<option value="">Sin caseta asignada</option>' +
+    STATE.casetas.map(c => '<option value="' + escapeHtml(c.ID) + '">' + escapeHtml(c.Nombre) + '</option>').join('');
+
+  $('#usr-f-id').value = u ? u.ID : '';
+  $('#usr-f-correo').value = u ? (u.Correo || '') : '';
+  $('#usr-f-nombre').value = u ? (u.Nombre || '') : '';
+  $('#usr-f-rol').value = u && ROLES_VALIDOS.indexOf(u.Rol) !== -1 ? u.Rol : 'Operador de Caseta';
+  const casetaMatch = u && u.CasetaAsignada ? buscarCaseta(u.CasetaAsignada) : null;
+  selCaseta.value = casetaMatch ? casetaMatch.ID : '';
+  $('#usr-f-activo').checked = u ? esActivo(u.Activo) : true;
+  $('#modal-usuario-title').textContent = u ? 'Editar usuario' : 'Nuevo usuario';
+
+  openModal('modal-usuario');
+}
+
+async function guardarRegistroUsuario() {
+  const id = valorCampo('usr-f-id');
+  const correo = valorCampo('usr-f-correo').toLowerCase();
+  const nombre = valorCampo('usr-f-nombre');
+  const rol = valorCampo('usr-f-rol');
+  const caseta = valorCampo('usr-f-caseta');
+  const activo = $('#usr-f-activo').checked;
+
+  if (!correo || !REGEX_CORREO.test(correo)) { showToast('Capture un correo electrónico válido.', 'warning'); return; }
+  const dom = correo.split('@')[1] || '';
+  if (DOMINIOS_INST.indexOf(dom) === -1) {
+    showToast('El correo debe pertenecer a un dominio institucional (' + DOMINIOS_INST.join(', ') + ').', 'warning');
+    return;
+  }
+  if (!nombre) { showToast('El nombre completo es obligatorio.', 'warning'); return; }
+  if (ROLES_VALIDOS.indexOf(rol) === -1) { showToast('Seleccione un rol válido.', 'warning'); return; }
+
+  const datos = { Correo: correo, Nombre: nombre, Rol: rol, CasetaAsignada: caseta, Activo: activo };
+  if (id) datos.ID = id;
+
+  const btn = $('#btn-usr-guardar');
+  try {
+    const r = await withBusy(btn, 'Guardando…', () => runGas('guardarUsuario', datos));
+    if (!r) return;
+    closeModal('modal-usuario');
+    showToast(id ? 'Usuario actualizado.' : 'Usuario registrado.', 'success');
+    cargarUsuarios();
+  } catch (e) {
+    showToast(e.message, 'error', 7000);
+  }
+}
+
+async function alternarEstadoUsuario(id, nuevoActivo, btn) {
+  if (!hasPerm('usuarios') || !id) return;
+  try {
+    const r = await withBusy(btn, nuevoActivo ? 'Activando…' : 'Desactivando…', () =>
+      runGas('cambiarEstadoUsuario', id, nuevoActivo));
+    if (!r) return;
+    showToast((nuevoActivo ? 'Cuenta activada: ' : 'Cuenta desactivada: ') + r.Correo, 'success');
+    cargarUsuarios();
+  } catch (e) {
+    showToast(e.message, 'error', 7000);
   }
 }
 
@@ -1136,6 +2675,9 @@ function iniciarApp() {
   bindNavegacion();
   bindCasetaSelects();
   initOperacion();
+  initConsultas();
+  initReportes();
+  initCatalogos();
   iniciarSesion();
 }
 
