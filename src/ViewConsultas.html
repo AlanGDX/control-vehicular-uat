@@ -1,0 +1,192 @@
+<!-- ViewConsultas.html — Consultas de Movimientos y Bitácora de Actividades -->
+<section id="view-consultas" data-view="consultas" hidden aria-label="Consultas y bitácora">
+
+  <!-- Barra de subvistas -->
+  <div class="card p-2 mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Módulos de consulta">
+    <button id="tab-btn-movimientos" type="button" role="tab" aria-selected="true" aria-controls="con-panel-movimientos"
+            data-con-tab="movimientos" class="btn btn-secondary btn-sm flex-1 sm:flex-initial">
+      <i data-lucide="search" class="w-4 h-4"></i><span>Consultas de Movimientos</span>
+    </button>
+    <button id="tab-btn-bitacora" type="button" role="tab" aria-selected="false" aria-controls="con-panel-bitacora"
+            data-con-tab="bitacora" data-perm="bitacora" hidden class="btn btn-neutral btn-sm flex-1 sm:flex-initial">
+      <i data-lucide="scroll-text" class="w-4 h-4"></i><span>Bitácora de Actividades</span>
+    </button>
+  </div>
+
+  <!-- ===================== Subvista: Movimientos ===================== -->
+  <div id="con-panel-movimientos" role="tabpanel" aria-labelledby="tab-btn-movimientos">
+    <section class="card p-4 mb-4" aria-label="Filtros de movimientos">
+      <div class="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+        <div class="flex items-center gap-2">
+          <i data-lucide="search" class="w-4 h-4 text-accent"></i>
+          <h2 class="font-display font-bold text-navy text-base">Consultas de Movimientos</h2>
+        </div>
+        <span id="con-updated" class="mono text-[11px] text-ink-muted"></span>
+      </div>
+      <form id="con-filtros-form" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-end">
+        <div>
+          <label for="con-placa" class="field-label">Placa</label>
+          <input id="con-placa" class="field mono uppercase" type="text" maxlength="12" placeholder="Ej. XYZ1234" autocomplete="off" spellcheck="false">
+        </div>
+        <div>
+          <label for="con-desde" class="field-label">Fecha desde</label>
+          <input id="con-desde" class="field mono" type="date">
+        </div>
+        <div>
+          <label for="con-hasta" class="field-label">Fecha hasta</label>
+          <input id="con-hasta" class="field mono" type="date">
+        </div>
+        <div>
+          <label for="con-caseta" class="field-label">Caseta</label>
+          <select id="con-caseta" class="field" data-caseta-filter>
+            <option value="">Todas las casetas</option>
+          </select>
+        </div>
+        <div>
+          <label for="con-tipo" class="field-label">Tipo de usuario</label>
+          <select id="con-tipo" class="field">
+            <option value="">Todos</option>
+            <option value="Estudiante">Estudiante</option>
+            <option value="Docente">Docente</option>
+            <option value="Administrativo">Administrativo</option>
+            <option value="Visitante">Visitante</option>
+          </select>
+        </div>
+        <div>
+          <label for="con-estado" class="field-label">Estado</label>
+          <select id="con-estado" class="field">
+            <option value="">Todos</option>
+            <option value="DENTRO">DENTRO</option>
+            <option value="SALIO">SALIO</option>
+            <option value="SIN SALIDA">SIN SALIDA</option>
+          </select>
+        </div>
+        <div class="flex gap-2 sm:col-span-2 lg:col-span-2 xl:col-span-1">
+          <button id="btn-con-buscar" type="submit" class="btn btn-secondary flex-1 !px-3">
+            <i data-lucide="search" class="w-4 h-4"></i><span>Consultar</span>
+          </button>
+          <button id="btn-con-limpiar" type="button" class="btn btn-neutral !px-3" title="Limpiar filtros" aria-label="Limpiar filtros">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i><span class="xl:hidden">Limpiar</span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card overflow-hidden" aria-label="Resultados de movimientos">
+      <div class="px-4 py-3 border-b border-line bg-mist flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="font-display font-bold text-navy text-sm">Movimientos encontrados</span>
+          <span id="con-count" class="badge badge-count">0</span>
+        </div>
+        <div id="con-resumen-estados" class="flex flex-wrap items-center gap-1.5"></div>
+      </div>
+      <div class="w-full overflow-x-auto">
+        <table class="w-full text-left border-collapse min-w-[780px]">
+          <thead>
+            <tr class="border-b border-line bg-mist/60">
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Placa</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Estado</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Titular / Tipo</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Entrada</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Salida</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Observaciones</th>
+            </tr>
+          </thead>
+          <tbody id="con-tbody" class="divide-y divide-line text-sm"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== Subvista: Bitácora (solo permiso 'bitacora') ===================== -->
+  <div id="con-panel-bitacora" role="tabpanel" aria-labelledby="tab-btn-bitacora" data-perm="bitacora" hidden>
+    <section class="card p-4 mb-4" aria-label="Filtros de bitácora">
+      <div class="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-3 border-b border-line">
+        <div class="flex items-center gap-2">
+          <i data-lucide="scroll-text" class="w-4 h-4 text-accent"></i>
+          <h2 class="font-display font-bold text-navy text-base">Bitácora de Actividades</h2>
+          <span class="badge badge-info">Solo lectura</span>
+        </div>
+        <span id="bit-updated" class="mono text-[11px] text-ink-muted"></span>
+      </div>
+      <form id="bit-filtros-form" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+        <div>
+          <label for="bit-usuario" class="field-label">Usuario</label>
+          <input id="bit-usuario" class="field" type="text" placeholder="Correo…" autocomplete="off">
+        </div>
+        <div>
+          <label for="bit-accion" class="field-label">Acción</label>
+          <select id="bit-accion" class="field">
+            <option value="">Todas las acciones</option>
+            <option value="ENTRADA">ENTRADA</option>
+            <option value="SALIDA">SALIDA</option>
+            <option value="SIN_SALIDA">SIN_SALIDA</option>
+            <option value="CIERRE_TURNO">CIERRE_TURNO</option>
+            <option value="CIERRE_NOCTURNO">CIERRE_NOCTURNO</option>
+            <option value="CONSULTA">CONSULTA</option>
+            <option value="EXPORTAR">EXPORTAR</option>
+            <option value="ALTA">ALTA</option>
+            <option value="EDITAR">EDITAR</option>
+            <option value="ELIMINAR">ELIMINAR</option>
+            <option value="LOGIN">LOGIN</option>
+            <option value="LOGIN_FALLIDO">LOGIN_FALLIDO</option>
+            <option value="ACCESO_DENEGADO">ACCESO_DENEGADO</option>
+            <option value="ALTA_USUARIO">ALTA_USUARIO</option>
+            <option value="EDITAR_USUARIO">EDITAR_USUARIO</option>
+            <option value="ACTIVAR_USUARIO">ACTIVAR_USUARIO</option>
+            <option value="DESACTIVAR_USUARIO">DESACTIVAR_USUARIO</option>
+            <option value="Sistema">Sistema</option>
+          </select>
+        </div>
+        <div>
+          <label for="bit-desde" class="field-label">Fecha desde</label>
+          <input id="bit-desde" class="field mono" type="date">
+        </div>
+        <div>
+          <label for="bit-hasta" class="field-label">Fecha hasta</label>
+          <input id="bit-hasta" class="field mono" type="date">
+        </div>
+        <div>
+          <label for="bit-limite" class="field-label">Límite</label>
+          <select id="bit-limite" class="field mono">
+            <option value="100">100 últimos</option>
+            <option value="250">250 últimos</option>
+            <option value="500" selected>500 últimos</option>
+          </select>
+        </div>
+        <div class="flex gap-2">
+          <button id="btn-bit-buscar" type="submit" class="btn btn-secondary flex-1 !px-3">
+            <i data-lucide="search" class="w-4 h-4"></i><span>Consultar</span>
+          </button>
+          <button id="btn-bit-limpiar" type="button" class="btn btn-neutral !px-3" title="Limpiar filtros" aria-label="Limpiar filtros de bitácora">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card overflow-hidden" aria-label="Registro cronológico de bitácora">
+      <div class="px-4 py-3 border-b border-line bg-mist flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="font-display font-bold text-navy text-sm">Eventos registrados</span>
+          <span id="bit-count" class="badge badge-count">0</span>
+        </div>
+        <span class="mono text-[11px] text-ink-muted">Orden cronológico inverso</span>
+      </div>
+      <div class="w-full overflow-x-auto">
+        <table class="w-full text-left border-collapse min-w-[740px]">
+          <thead>
+            <tr class="border-b border-line bg-mist/60">
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Fecha y Hora</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Usuario</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Acción</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Módulo</th>
+              <th class="py-2.5 px-3 mono text-[11px] font-bold uppercase tracking-wider text-ink-muted">Detalle</th>
+            </tr>
+          </thead>
+          <tbody id="bit-tbody" class="divide-y divide-line text-sm"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>
