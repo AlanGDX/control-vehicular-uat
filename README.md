@@ -43,7 +43,6 @@ Plataforma web responsiva desarrollada sobre **Google Apps Script (V8)** y **Goo
 - **Aplicación Web — Producción (Interfaz completa):** [Abrir Control Vehicular UAT CUTM Sur](https://script.google.com/macros/s/AKfycbzQzXCVaQZ72Kudd1nu5yBDHOZREF1hhvuQ7tYc5FLj/dev) *(requiere cuenta institucional UAT dada de alta)*
 - **Entorno de pruebas (Backend base):** [Abrir implementación de pruebas (Backend)](https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec) *(implementación inicial de verificación de backend)*
 - **Repositorio oficial:** [https://github.com/AlanGDX/control-vehicular-uat](https://github.com/AlanGDX/control-vehicular-uat)
-- **Video demostrativo de la aplicación:** [Video Demostrativo](https://github.com/AlanGDX/control-vehicular-uat/releases/download/v1.0/Video-demostrativo.mp4)
 - **Administración / Soporte de acceso:** `a2221330007@alumnos.uat.edu.mx`
 
 ---
@@ -427,7 +426,7 @@ El diseño, desarrollo y documentación del sistema siguen buenas prácticas de 
 | **Manual de Usuario (PDF / Markdown)** | Guía operativa y administrativa paso a paso por rol con capturas reales, FAQ y glosario (v1.0.0) | [docs/MANUAL_USUARIO.pdf](docs/MANUAL_USUARIO.pdf) · [MANUAL_USUARIO.md](MANUAL_USUARIO.md) |
 | **Documentación técnica del Backend** | API `google.script.run` (17 funciones públicas), esquema de hojas, roles y reglas de negocio | [BACKEND.md](BACKEND.md) |
 | **Documentación técnica del Frontend** | Arquitectura SPA (7 plantillas HTML), tokens visuales, matriz de integración y lector QR | [FRONTEND.md](FRONTEND.md) |
-| **Video demostrativo** | Demostración funcional y evidencias de campo del Hackatón | `<URL_DEMO_O_VIDEO>` |
+| **Video demostrativo** | Demostración funcional y evidencias de campo del Hackatón | [Demo](https://github.com/AlanGDX/control-vehicular-uat/releases/download/v1.0/Video-demostrativo.mp4) |
 
 ---
 
