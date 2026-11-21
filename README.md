@@ -43,6 +43,7 @@ Plataforma web responsiva desarrollada sobre **Google Apps Script (V8)** y **Goo
 - **Aplicación Web — Producción (Interfaz completa):** [Abrir Control Vehicular UAT CUTM Sur](https://script.google.com/macros/s/AKfycbzQzXCVaQZ72Kudd1nu5yBDHOZREF1hhvuQ7tYc5FLj/dev) *(requiere cuenta institucional UAT dada de alta)*
 - **Entorno de pruebas (Backend base):** [Abrir implementación de pruebas (Backend)](https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec) *(implementación inicial de verificación de backend)*
 - **Repositorio oficial:** [https://github.com/AlanGDX/control-vehicular-uat](https://github.com/AlanGDX/control-vehicular-uat)
+- **Video demostrativo de la aplicación:** [Video Demostrativo](https://github.com/AlanGDX/control-vehicular-uat/releases/download/v1.0/Video-demostrativo.mp4)
 - **Administración / Soporte de acceso:** `a2221330007@alumnos.uat.edu.mx`
 
 ---
