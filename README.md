@@ -1,5 +1,36 @@
 # Sistema de Control de Acceso Vehicular — UAT CUTM Sur
 
+                                            
+  .:.           ..     ..       .:::::.      
+  : :   :.:   .-:::.   .::.   :-:    .:.:.   
+  : :----.: .:::-::::. .:.        :-. ::::.  
+  :::   .:: ::.    .::..::::::. .:----:.     
+                                             
+                                             
+                 .:::::::::.                 
+             .::. :-::::::: .:::             
+            :=:   .:.....::.  :=-.           
+          .--:.:  ..     .:. .::--.            _____    ___    _   _   ___   ____     ___  
+         .: . .: .:=====-=:. :. . :.          | ____|  / _ \  | | | | |_ _| |  _ \   / _ \ 
+         :.   .: .:.      :. :.    :.         |  _|   | | | | | | | |  | |  | |_) | | | | |
+        .: :-   .--       :=:   -: :.         | |___  | |_| | | |_| |  | |  |  __/  | |_| |
+         .::==:....       .....:=:::          |_____|  \__\_\  \___/  |___| |_|      \___/ 
+         .:-=                   :=-.         
+         .:-=                   :=-.              _   _    ___    ____    _       _____    
+         :::-:                 ::=::             | \ | |  / _ \  | __ )  | |     | ____|   
+        .:::-:::   .:.....   :::-::-.            |  \| | | | | | |  _ \  | |     |  _|     
+        .:.:=-====:::::::::-=-=-=-:=:            | |\  | | |_| | | |_) | | |___  | |___    
+        .:--: .:::-==:  .-=-::. .::-.            |_| \_|  \___/  |____/  |_____| |_____|   
+          :.:.  ..:::   .:-:  ..:.:.         
+           ::.:-: .::: .::.::::.::.          
+             :-:. .::: .::..::::  .::.-::::=.
+                .::.:: :::::.                
+                   :::::::.         :*####-  
+                                    -++++++  
+                                    =******. 
+                                    .-+**=:  
+                                             
+
 ![Google Apps Script](https://img.shields.io/badge/Google%20Apps%20Script-V8-4285F4?logo=google&logoColor=white)
 ![Google Sheets](https://img.shields.io/badge/Base%20de%20Datos-Google%20Sheets-34A853?logo=googlesheets&logoColor=white)
 ![Frontend](https://img.shields.io/badge/Frontend-SPA%20Responsiva%20%7C%20Tailwind%20%7C%20Chart.js-0F2B46)
@@ -175,7 +206,12 @@ control-vehicular-uat/
 ├── MANUAL_USUARIO.md
 ├── README.md
 ├── docs/
-│   └── MANUAL_USUARIO.pdf
+│   ├── Entregable_6_Evidencias_Levantamiento_UAT_v2.pdf
+│   ├── Figura 1 — Diagrama Entidad-Relación.drawio.png
+│   ├── Figura 2 — Diagrama de Actividades (Flujo Operativo).drawio.png
+│   ├── Figura 3 — Diagrama de Casos de Uso.drawio.png
+│   ├── MANUAL_USUARIO.pdf
+│   └── SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf
 └── src/
     ├── appsscript.json
     ├── Auth.js
@@ -205,6 +241,11 @@ control-vehicular-uat/
 | `FRONTEND.md` | Documentación | Documentación técnica de la SPA, sistema de diseño, matriz de llamadas `runGas()` y decisiones de UI. |
 | `MANUAL_USUARIO.md` | Documentación | Manual de operación y administración paso a paso por rol (v1.0.0), incluye FAQ y glosario. |
 | `docs/MANUAL_USUARIO.pdf` | Documentación | Versión oficial en PDF (25 páginas) del Manual de Usuario con portada institucional y 9 figuras con capturas reales. |
+| `docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf` | Documentación | Especificación de Requisitos de Software (SRS v3.1, 26 páginas) alineada a IEEE 830, ISO/IEC/IEEE 29148 e ISO/IEC 25010, incluyendo matriz de trazabilidad y evidencias de uso de IA. |
+| `docs/Entregable_6_Evidencias_Levantamiento_UAT_v2.pdf` | Documentación | Evidencias del levantamiento presencial de requisitos en caseta (20/11/2026), registro fotográfico y formato físico vigente. |
+| `docs/Figura 1 — Diagrama Entidad-Relación.drawio.png` | Diagramas | Diagrama Entidad-Relación de las 8 pestañas normalizadas de Google Sheets y sus relaciones. |
+| `docs/Figura 2 — Diagrama de Actividades (Flujo Operativo).drawio.png` | Diagramas | Diagrama UML de actividades del flujo operativo en caseta, control de concurrencia y Cierre de Turno. |
+| `docs/Figura 3 — Diagrama de Casos de Uso.drawio.png` | Diagramas | Diagrama UML de casos de uso para los 3 roles (`Administrador`, `Operador de Caseta` y `Consulta`). |
 | `README.md` | Documentación | Documentación general del repositorio, arquitectura, despliegue, seguridad y transparencia de IA. |
 | `src/appsscript.json` | Manifiesto GAS | Runtime `V8`, zona horaria `America/Monterrey`, registro `STACKDRIVER`, 7 scopes OAuth y configuración `webapp`. |
 | `src/Config.js` | Backend | Constantes globales (`DOMINIOS_PERMITIDOS`, `ADMIN_INICIAL`, `HORAS_ALERTA_ESTANCIA`, `HORA_CIERRE_NOCTURNO`), `ESTADOS`, `ROLES`, `PERMISOS`, esquema `HOJAS`, `CATALOGOS` y `REQUERIDOS`. |
@@ -379,59 +420,63 @@ El diseño, desarrollo y documentación del sistema siguen buenas prácticas de 
 
 | Documento | Descripción | Ubicación / Enlace |
 |---|---|---|
+| **Especificación de Requisitos de Software (SRS v3.1)** | Documento formal (26 págs.) alineado a IEEE 830, ISO/IEC/IEEE 29148 e ISO/IEC 25010, con diccionario de datos, evidencias de IA y matriz de trazabilidad | [docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf](docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf) |
+| **Diagramas del sistema (UML / E-R)** | Diagrama Entidad-Relación, Diagrama de Actividades y Diagrama de Casos de Uso | [Entidad-Relación](docs/Figura%201%20%E2%80%94%20Diagrama%20Entidad-Relaci%C3%B3n.drawio.png) · [Actividades](docs/Figura%202%20%E2%80%94%20Diagrama%20de%20Actividades%20%28Flujo%20Operativo%29.drawio.png) · [Casos de Uso](docs/Figura%203%20%E2%80%94%20Diagrama%20de%20Casos%20de%20Uso.drawio.png) |
+| **Evidencias de Levantamiento en Campo (Entregable 6)** | Entrevista presencial a personal de caseta (20/11/2026), evidencia fotográfica y análisis del formato físico vigente | [docs/Entregable_6_Evidencias_Levantamiento_UAT_v2.pdf](docs/Entregable_6_Evidencias_Levantamiento_UAT_v2.pdf) |
 | **Manual de Usuario (PDF / Markdown)** | Guía operativa y administrativa paso a paso por rol con capturas reales, FAQ y glosario (v1.0.0) | [docs/MANUAL_USUARIO.pdf](docs/MANUAL_USUARIO.pdf) · [MANUAL_USUARIO.md](MANUAL_USUARIO.md) |
-| **Documentación técnica del Backend** | API `google.script.run`, esquema de hojas, roles y reglas de negocio | [BACKEND.md](BACKEND.md) |
-| **Documentación técnica del Frontend** | Arquitectura SPA, tokens visuales, matriz de integración y lector QR | [FRONTEND.md](FRONTEND.md) |
-| **Especificación de Requisitos de Software (SRS)** | Documento formal alineado a IEEE 830 / ISO/IEC/IEEE 29148 | `<URL_DOCUMENTO_SRS>` |
-| **Diagramas del sistema (UML / E-R)** | Casos de uso, entidad-relación, secuencia y arquitectura | `<URL_DIAGRAMAS>` |
+| **Documentación técnica del Backend** | API `google.script.run` (17 funciones públicas), esquema de hojas, roles y reglas de negocio | [BACKEND.md](BACKEND.md) |
+| **Documentación técnica del Frontend** | Arquitectura SPA (7 plantillas HTML), tokens visuales, matriz de integración y lector QR | [FRONTEND.md](FRONTEND.md) |
 | **Video demostrativo** | Demostración funcional y evidencias de campo del Hackatón | `<URL_DEMO_O_VIDEO>` |
 
 ---
 
 ## 8. Transparencia en el uso de Inteligencia Artificial
 
-En apego a las políticas de integridad académica y transparencia tecnológica del Hackatón, se declara el uso de herramientas de Inteligencia Artificial generativa como apoyo durante el ciclo de vida del proyecto:
+En apego a las políticas de integridad académica y transparencia tecnológica del Hackatón, el **Equipo Noble** declara el uso de herramientas de Inteligencia Artificial generativa durante el ciclo de vida del proyecto, en completa concordancia con la **Sección 7 del SRS v3.1** ([docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf](docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf), donde se incluyen además las evidencias gráficas de prompts y resultados por integrante):
 
-### Herramientas utilizadas
-- **Google Stitch:** diseño UX/UI, exploración visual del sistema *Terminal Operativa Táctica* y referencias de interfaz.
-- **Claude Code:** apoyo en arquitectura del backend en Google Apps Script, refinamiento de reglas de negocio y control de concurrencia.
-- **Antigravity (agente en VS Code):** asistencia en desarrollo frontend, integración entre módulos, revisión técnica del repositorio y documentación.
-- **Google Gemini:** apoyo en análisis de requisitos, estructuración normativa, redacción técnica y validación documental.
+### Herramientas utilizadas por integrante
 
-### Actividades apoyadas
-- **Análisis:** estructuración de requisitos funcionales/no funcionales a partir del levantamiento en campo y detección de casos límite operativos (salidas no registradas, cruce de medianoche, concurrencia entre las 3 casetas).
-- **Diseño:** prototipado UX/UI en Google Stitch, diseño del esquema normalizado en Google Sheets y definición de la matriz RBAC.
-- **Programación:** implementación asistida de módulos `.js` en Apps Script, vistas HTML/Tailwind, lógica cliente `ClientJS.html`, exportación Base64 y manejo de `html5-qrcode` / Chart.js.
-- **Documentación:** redacción estructurada de `BACKEND.md`, `FRONTEND.md`, `MANUAL_USUARIO.md`, este `README.md` y apoyo en formato de entregables SRS.
+| Integrante | Herramienta(s) de IA | Propósito principal de uso |
+|---|---|---|
+| **Alan Eduardo García Silva** | Claude | Generación inicial de los 8 módulos `.gs` del backend, contrato `BACKEND.md`, depuración guiada y mejoras de compartición/revocación automática en Google Sheets. |
+| **Juan Antonio Casanova Torres** | Google Stitch, Antigravity (VS Code) y Google Gemini | Prototipado visual (*Terminal Operativa Táctica*), construcción iterativa de los 7 archivos `.html` del frontend, redacción de prompts y pruebas estáticas en Node.js. |
+| **José Manuel García Vega** | Google Gemini | Análisis comparativo entre convocatoria e infografía, reparto de responsabilidades, redacción/estructuración del SRS conforme a IEEE/ISO y apoyo en diagramado Draw.io. |
+| **Víctor Jonathan Montoya Luna** | Antigravity (VS Code) | Redacción estructurada del Manual de Usuario (`MANUAL_USUARIO.md` / PDF) y documentación del repositorio (`README.md`) verificada contra el código fuente real. |
+| **Ana Laura Del Ángel Hernández** | Ninguna (`0% IA`) | Levantamiento presencial en caseta (entrevista a guardias del 20/11/2026), captura de evidencias fotográficas y elaboración del video demostrativo 100% de manera manual. |
 
-### Beneficios y limitaciones observadas
-- **Beneficios:** aceleración significativa en prototipado visual, implementación de CRUDs y validaciones repetitivas, documentación técnica homogénea y exploración rápida de soluciones responsivas.
-- **Limitaciones y mitigación humana:** las herramientas de IA no sustituyen el levantamiento real en casetas ni las pruebas dentro del entorno productivo de Google Apps Script; el equipo validó y corrigió manualmente restricciones específicas de plataforma —como la política `Permissions-Policy` de cámara dentro del iframe de Apps Script, la persistencia inmediata mediante `SpreadsheetApp.flush()` bajo `LockService` para prevenir salidas duplicadas y las pruebas integrales de QA por rol— asumiendo la responsabilidad técnica total sobre la solución final.
+### Actividades apoyadas, beneficios y limitaciones resueltas manualmente
+- **Actividades con apoyo de IA:** generación base de los 8 módulos backend y 7 vistas frontend bajo contrato técnico, prototipado inicial en Google Stitch, análisis inicial de la convocatoria, redacción estructurada del SRS, esquemas base de diagramas y documentación de usuario.
+- **Beneficios:** aceleración significativa dentro del plazo del hackatón, consistencia visual entre móvil y escritorio, validación estática en Node.js y trazabilidad documental con IEEE 830, ISO/IEC/IEEE 29148 e ISO/IEC 25010.
+- **Limitaciones detectadas y correcciones manuales del equipo:**
+  - Depuración en vivo del error real `ReferenceError: registrarBitacora_ is not defined` en `setupInicial` (`Setup.gs:50`), auditando la carga completa de los 8 módulos en el editor de Apps Script.
+  - Eliminación manual de acciones fuera de alcance (`'ABRIR PLUMA'`) y campos ficticios generados por Google Stitch (número de tarjetón, vigencia, adscripción y turno fijo) para empatar estrictamente con `BACKEND.md`.
+  - Resolución manual de la restricción `Permissions-Policy` del iframe de Google Apps Script (que bloquea `getUserMedia` en cámara en vivo) mediante captura nativa (`capture="environment"`), galería y lectores QR USB/Bluetooth.
+  - Prevención de salidas duplicadas concurrentes mediante `SpreadsheetApp.flush()` dentro de `LockService`, pruebas reales multicuenta en `USER_ACCESSING` con correos UAT, levantamiento presencial en caseta y refinamiento manual de diagramas en Draw.io.
 
 ### Estimación porcentual de apoyo de IA por fase
 
-> Los porcentajes de esta tabla se mantienen sincronizados con la declaración de transparencia del documento SRS.
+> Los porcentajes de esta tabla coinciden exactamente con la **Sección 7.3 del SRS v3.1** ([docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf](docs/SRS_Control_Acceso_Vehicular_UAT_v3.1.pdf)).
 
-| Fase del proyecto | Porcentaje estimado de apoyo con IA | Rol del equipo humano |
+| Fase del proyecto | Porcentaje estimado de apoyo con IA | Distribución de participación humana y de IA |
 |---|:---:|---|
-| **Análisis** | `<PORCENTAJE_ANALISIS>%` | Entrevistas y levantamiento en campo en el CUTM Sur, validación de problemática y reglas de negocio |
-| **Diseño** | `~70%` *(por confirmar con SRS)* | Definición de arquitectura, modelo de datos normalizado, criterios UX tácticos y esquema de permisos |
-| **Programación** | `~70–75%` *(por confirmar con SRS)* | Integración, pruebas en Apps Script/Sheets, depuración de concurrencia, QA y despliegue en producción |
-| **Documentación** | `<PORCENTAJE_DOCUMENTACION>%` | Verificación contra código real, capturas, evidencias fotográficas, video demostrativo y revisión editorial |
+| **Análisis** | **35%** | Predominantemente humano por el levantamiento presencial en caseta y definición real de procesos (Integrante 5 sin IA); apoyo de Google Gemini para contrastar convocatoria/infografía y estructurar requisitos. |
+| **Diseño** | **70%** | Prototipado visual inicial en Google Stitch y esquemas base de diagramas; depuración de alcance, ajuste al modelo real de 8 tablas y refinamiento manual en Draw.io. |
+| **Programación** | **75%** | Generación asistida de los 8 módulos `.gs` (Claude) y 7 archivos `.html` (Antigravity); depuración en producción, resolución de `Permissions-Policy`, concurrencia, pruebas con cuentas UAT y despliegue 100% manuales. |
+| **Documentación** | **60%** | Estructuración y redacción asistida del SRS (Gemini) y del Manual de Usuario / README (Antigravity); validación contra el sistema real, incorporación de evidencias de campo y revisión final manuales. |
 
 ---
 
 ## 9. Equipo de desarrollo y créditos institucionales
 
-### Equipo de desarrollo
+### Equipo de desarrollo — Equipo Noble
 
-| Integrante | Rol y responsabilidades |
-|---|---|
-| **Alan Eduardo García Silva** | Arquitectura Backend (Google Apps Script), Base de Datos (Google Sheets) y Repositorio |
-| **Juan Antonio Casanova Torres** | Diseño UX/UI (Google Stitch), Desarrollo Frontend SPA e Integración Web App |
-| **José Manuel García Vega** | Ingeniería de Requisitos, Documentación SRS y Diagramado UML/E-R |
-| **Víctor Jonathan Montoya Luna** | Levantamiento de Requisitos en Campo, QA, Manual de Usuario y Repositorio |
-| **Ana Laura Del Ángel Hernández** | Apoyo en Entrevistas de Campo, Evidencias Fotográficas y Video Demostrativo |
+| Integrante | Matrícula | Rol y responsabilidades |
+|---|:---:|---|
+| **Alan Eduardo García Silva** | `2221330007` | Arquitectura Backend (Google Apps Script), Base de Datos (Google Sheets) y Repositorio |
+| **Juan Antonio Casanova Torres** | `2233336120` | Diseño UX/UI (Google Stitch), Desarrollo Frontend SPA e Integración Web App |
+| **José Manuel García Vega** | `2203229002` | Ingeniería de Requisitos, Documentación SRS y Diagramado UML/E-R |
+| **Víctor Jonathan Montoya Luna** | `2223330179` | Levantamiento de Requisitos en Campo, QA, Manual de Usuario y Repositorio |
+| **Ana Laura Del Ángel Hernández** | `2263335231` | Entrevista Presencial en Caseta, Evidencias Fotográficas y Video Demostrativo |
 
 ### Créditos institucionales
 
@@ -442,3 +487,8 @@ Proyecto desarrollado en el marco del **Hackatón UAT CUTM Sur — Facultad de I
 - **Facultad:** Facultad de Ingeniería Tampico (FIT)
 - **Programa educativo:** Ingeniería en Sistemas Computacionales (ISC)
 - **Edición:** Hackatón UAT CUTM Sur — Facultad de Ingeniería Tampico 2026
+
+
+
+
+
