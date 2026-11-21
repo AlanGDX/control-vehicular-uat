@@ -1,6 +1,6 @@
 # Sistema de Control de Acceso Vehicular — UAT CUTM Sur
 
-                                            
+```text
   .:.           ..     ..       .:::::.      
   : :   :.:   .-:::.   .::.   :-:    .:.:.   
   : :----.: .:::-::::. .:.        :-. ::::.  
@@ -29,7 +29,7 @@
                                     -++++++  
                                     =******. 
                                     .-+**=:  
-                                             
+```
 
 ![Google Apps Script](https://img.shields.io/badge/Google%20Apps%20Script-V8-4285F4?logo=google&logoColor=white)
 ![Google Sheets](https://img.shields.io/badge/Base%20de%20Datos-Google%20Sheets-34A853?logo=googlesheets&logoColor=white)
@@ -40,8 +40,8 @@
 
 Plataforma web responsiva desarrollada sobre **Google Apps Script (V8)** y **Google Sheets** para digitalizar el registro, validación, monitoreo y análisis estadístico de accesos vehiculares en las **3 casetas del Centro Universitario Tampico-Madero (CUTM) Sur** de la **Universidad Autónoma de Tamaulipas (UAT)**.
 
-- **Aplicación Web — Producción (`/exec`):** [Abrir Control Vehicular UAT CUTM Sur](https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec) *(requiere cuenta institucional UAT dada de alta)*
-- **Entorno de pruebas / desarrollo (`/dev`):** [Abrir implementación HEAD (`/dev`)](https://script.google.com/macros/s/AKfycbzQzXCVaQZ72Kudd1nu5yBDHOZREF1hhvuQ7tYc5FLj/dev) *(solo cuentas con permiso de editor en el proyecto de Apps Script)*
+- **Aplicación Web — Producción (Interfaz completa):** [Abrir Control Vehicular UAT CUTM Sur](https://script.google.com/macros/s/AKfycbzQzXCVaQZ72Kudd1nu5yBDHOZREF1hhvuQ7tYc5FLj/dev) *(requiere cuenta institucional UAT dada de alta)*
+- **Entorno de pruebas (Backend base):** [Abrir implementación de pruebas (Backend)](https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec) *(implementación inicial de verificación de backend)*
 - **Repositorio oficial:** [https://github.com/AlanGDX/control-vehicular-uat](https://github.com/AlanGDX/control-vehicular-uat)
 - **Administración / Soporte de acceso:** `a2221330007@alumnos.uat.edu.mx`
 
@@ -347,8 +347,8 @@ const CONFIG = {
    - **Ejecutar como:** `Usuario que accede a la aplicación web`
    - **Quién tiene acceso:** `Cualquier usuario con cuenta de Google` *(o `Cualquier usuario del dominio UAT` si el libro reside en Google Workspace institucional)*.
 3. Haga clic en **Implementar**, copie el `<TU_DEPLOYMENT_ID>` y la URL pública `/exec`.
-   - **Instancia de producción (`/exec`):** `https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec`
-   - **Implementación de pruebas / HEAD (`/dev`):** `https://script.google.com/macros/s/AKfycbzQzXCVaQZ72Kudd1nu5yBDHOZREF1hhvuQ7tYc5FLj/dev` *(uso interno de desarrollo; requiere acceso de editor en Apps Script)*
+   - **Aplicación Web — Producción (Interfaz completa):** `https://script.google.com/macros/s/AKfycbzQzXCVaQZ72Kudd1nu5yBDHOZREF1hhvuQ7tYc5FLj/dev`
+   - **Entorno de pruebas (Backend base):** `https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec` *(implementación inicial de verificación de backend)*
 
 > **¿Por qué `USER_ACCESSING`?** Ejecutar como el usuario que accede permite identificar con certeza el correo de cada operador mediante `Session.getActiveUser().getEmail()`. Al dar de alta o reactivar un usuario, el backend invoca automáticamente `darAccesoHoja_(correo)` (`addEditor`) para otorgarle permiso sobre el libro de datos, y lo revoca (`removeEditor`) al desactivarlo; adicionalmente, cada operación sigue validándose contra `DOMINIOS_PERMITIDOS`, la hoja `Usuarios` y la matriz `PERMISOS`.
 
