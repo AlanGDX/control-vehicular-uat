@@ -26,12 +26,12 @@ Documento: Manual de Operación y Administración de Usuario
 Versión: 1.0.0 | Fecha: 20 de Noviembre de 2026 
 Plataforma: Google Apps Script / Google Sheets Engine 
 ========================================================================================================
-Elaborado por: 
+Elaborado por — Equipo Noble:
 Alan Eduardo García Silva
 José Manuel García Vega
-Casanova Torres Juan Antonio
-Ana Laura Del Angel Hernández
-Montoya Luna Victor Jonathan
+Juan Antonio Casanova Torres
+Ana Laura Del Ángel Hernández
+Víctor Jonathan Montoya Luna
 ========================================================================================================
 
 
@@ -116,9 +116,9 @@ El sistema controla automáticamente qué pantallas y botones ve cada persona se
 
 El sistema utiliza autenticación directa mediante tu **cuenta institucional de Google** (no requiere contraseñas adicionales).
 
-1. Abre tu navegador web (preferentemente **Google Chrome**) en tu celular o computadora, y haz clic en tu foto de perfil o avatar en la esquina superior derecha del navegador, Selecciona Añadir (o Agregar nuevo perfil), Haz clic en Iniciar sesión con una cuenta de correo electronico existente, Haz clic en Iniciar sesión e ingresa tu correo institucional (por ejemplo, con dominio @alumnos.uat.edu.mx o el asignado por la facultad) junto con tu contraseña institucional.
+1. Abre tu navegador web (preferentemente **Google Chrome**) en tu celular o computadora, haz clic en tu foto de perfil o avatar en la esquina superior derecha, selecciona **Añadir** (o *Agregar nuevo perfil*), haz clic en **Iniciar sesión** con una cuenta de correo electrónico existente e ingresa tu correo institucional (por ejemplo, con dominio `@alumnos.uat.edu.mx` o el asignado por la facultad) junto con tu contraseña institucional.
 2. Verifica que tengas iniciada sesión en Google únicamente con tu **cuenta institucional UAT** (`@uat.edu.mx`, `@docentes.uat.edu.mx` o `@alumnos.uat.edu.mx`).
-3. Ingresa al **enlace oficial de la Web App** proporcionado por el Administrador del sistema (`https://script.google.com/macros/s/[ID-OFICIAL]/exec`).
+3. Ingresa al **enlace oficial de la Web App** proporcionado por el Administrador del sistema (`https://script.google.com/macros/s/AKfycbwRXo2hpDsyF3wKqRKGxudVQQdebz-vWdCSVLe5_ZA4GOgXVgRWnMw2k9eJdJj-jG529g/exec`).
 4. Si es tu primer acceso y Google muestra un aviso de permisos o selección de cuenta, selecciona tu correo institucional y acepta los permisos solicitados.
 5. Espera unos segundos mientras aparece la pantalla **Control Vehicular UAT — Verificando sesión institucional…**.
 6. Al validar tus credenciales y tu rol, el sistema abrirá automáticamente tu vista inicial:

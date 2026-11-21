@@ -174,6 +174,8 @@ control-vehicular-uat/
 ├── FRONTEND.md
 ├── MANUAL_USUARIO.md
 ├── README.md
+├── docs/
+│   └── MANUAL_USUARIO.pdf
 └── src/
     ├── appsscript.json
     ├── Auth.js
@@ -202,6 +204,7 @@ control-vehicular-uat/
 | `BACKEND.md` | Documentación | Guía técnica del backend, catálogo de funciones API y reglas de negocio. |
 | `FRONTEND.md` | Documentación | Documentación técnica de la SPA, sistema de diseño, matriz de llamadas `runGas()` y decisiones de UI. |
 | `MANUAL_USUARIO.md` | Documentación | Manual de operación y administración paso a paso por rol (v1.0.0), incluye FAQ y glosario. |
+| `docs/MANUAL_USUARIO.pdf` | Documentación | Versión oficial en PDF (25 páginas) del Manual de Usuario con portada institucional y 9 figuras con capturas reales. |
 | `README.md` | Documentación | Documentación general del repositorio, arquitectura, despliegue, seguridad y transparencia de IA. |
 | `src/appsscript.json` | Manifiesto GAS | Runtime `V8`, zona horaria `America/Monterrey`, registro `STACKDRIVER`, 7 scopes OAuth y configuración `webapp`. |
 | `src/Config.js` | Backend | Constantes globales (`DOMINIOS_PERMITIDOS`, `ADMIN_INICIAL`, `HORAS_ALERTA_ESTANCIA`, `HORA_CIERRE_NOCTURNO`), `ESTADOS`, `ROLES`, `PERMISOS`, esquema `HOJAS`, `CATALOGOS` y `REQUERIDOS`. |
@@ -376,7 +379,7 @@ El diseño, desarrollo y documentación del sistema siguen buenas prácticas de 
 
 | Documento | Descripción | Ubicación / Enlace |
 |---|---|---|
-| **Manual de Usuario** | Guía operativa y administrativa paso a paso por rol, FAQ y glosario (v1.0.0) | [MANUAL_USUARIO.md](MANUAL_USUARIO.md) |
+| **Manual de Usuario (PDF / Markdown)** | Guía operativa y administrativa paso a paso por rol con capturas reales, FAQ y glosario (v1.0.0) | [docs/MANUAL_USUARIO.pdf](docs/MANUAL_USUARIO.pdf) · [MANUAL_USUARIO.md](MANUAL_USUARIO.md) |
 | **Documentación técnica del Backend** | API `google.script.run`, esquema de hojas, roles y reglas de negocio | [BACKEND.md](BACKEND.md) |
 | **Documentación técnica del Frontend** | Arquitectura SPA, tokens visuales, matriz de integración y lector QR | [FRONTEND.md](FRONTEND.md) |
 | **Especificación de Requisitos de Software (SRS)** | Documento formal alineado a IEEE 830 / ISO/IEC/IEEE 29148 | `<URL_DOCUMENTO_SRS>` |
