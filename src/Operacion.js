@@ -57,7 +57,11 @@ function registrarSalida(d) {
   return api_('operacion', (u) => conBloqueo_(() => {
     const caseta = casetaActiva_(d.casetaId);
     let mov = d.movimientoId ? buscarPorId_('MOVIMIENTOS', d.movimientoId) : movimientoAbierto_(normalizarPlaca(d.placa));
-    if (!mov || mov.Estado !== ESTADOS.DENTRO) throw new Error('No hay una entrada abierta para ese vehículo.');
+    if (!mov || mov.Estado !== ESTADOS.DENTRO || mov.FechaHoraSalida) {
+      throw new Error(mov && mov.Estado === ESTADOS.SALIO
+        ? 'El vehículo ' + mov.Placa + ' ya registró su salida (' + String(mov.FechaHoraSalida).replace('T', ' ') + ' por ' + mov.CasetaSalida + ').'
+        : 'No hay una entrada abierta para ese vehículo.');
+    }
     const r = actualizar_('MOVIMIENTOS', mov.ID, {
       CasetaSalidaID: caseta.ID,
       CasetaSalida: caseta.Nombre,
