@@ -6,7 +6,7 @@
 3. En *Configuración del proyecto* activar "Mostrar appsscript.json" y pegar `src/appsscript.json`.
 4. En `Config.gs` cambiar `ADMIN_INICIAL` por tu correo institucional y revisar `DOMINIOS_PERMITIDOS`.
 5. Ejecutar `setupInicial` (autorizar permisos). Opcional: `cargarDatosPrueba`.
-6. **Implementar › Nueva implementación › Aplicación web**: Ejecutar como *Yo*, Acceso *Usuarios del dominio* (si no hay Workspace UAT, usar "Cualquier usuario con cuenta de Google"; el login sigue filtrando por dominio y por hoja `Usuarios`).
+6. **Implementar › Nueva implementación › Aplicación web**: Ejecutar como *Usuario que accede a la aplicación web* (`USER_ACCESSING`), Acceso *Cualquier usuario con cuenta de Google* (`ANYONE`, o *Usuarios del dominio* en Google Workspace UAT). Conforme a `src/appsscript.json`, el login filtra por `DOMINIOS_PERMITIDOS` y por la hoja `Usuarios`, y `darAccesoHoja_()` comparte automáticamente el libro a cada usuario activo.
 7. Sincronizar con GitHub: `npm i -g @google/clasp`, `clasp login`, `clasp clone <scriptId>` dentro de `src/`, luego `clasp push` / `clasp pull`.
 
 ## Hojas

@@ -1,10 +1,10 @@
 /**
  * Auth.gs — Autenticación con cuentas institucionales, roles, gestión de usuarios y bitácora.
  *
- * El Web App se despliega como:
- *   Ejecutar como: "Yo (propietario)"
- *   Acceso: "Cualquier usuario del dominio uat.edu.mx" (o "Cualquier usuario con cuenta de Google")
- * Session.getActiveUser() devuelve el correo de quien accede.
+ * El Web App se despliega conforme a appsscript.json:
+ *   Ejecutar como: "Usuario que accede a la aplicación web" (USER_ACCESSING)
+ *   Acceso: "Cualquier usuario con cuenta de Google" (ANYONE) o "Usuarios del dominio UAT"
+ * Session.getActiveUser() devuelve el correo de quien accede; darAccesoHoja_() comparte el libro al dar de alta usuarios.
  */
 
 function correoActual_() {
