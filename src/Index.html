@@ -1,44 +1,177 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <base target="_top">
   <meta charset="utf-8">
-  <!-- Página de prueba del backend. El Integrante 2 la reemplaza por la interfaz final. -->
-  <style>
-    body{font-family:system-ui,sans-serif;max-width:720px;margin:auto;padding:16px}
-    input,select,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
-    pre{background:#f3f4f6;padding:8px;overflow:auto;font-size:12px}
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Control de Acceso Vehicular UAT CUTM Sur</title>
+  <?!= include('Styles') ?>
 </head>
-<body>
-  <h2>Control Vehicular — Prueba de backend</h2>
-  <div id="sesion">Validando cuenta…</div>
-  <select id="caseta"></select>
-  <input id="placa" placeholder="Placa (ej. XYZ-123-4)">
-  <button onclick="call('registrarEntrada',{placa:v('placa'),casetaId:v('caseta')})">Registrar entrada</button>
-  <button onclick="call('registrarSalida',{placa:v('placa'),casetaId:v('caseta')})">Registrar salida</button>
-  <button onclick="call('vehiculosDentro')">Vehículos dentro</button>
-  <button onclick="call('obtenerReporte',{})">Reporte</button>
-  <button onclick="descargar('xlsx')">Exportar Excel</button>
-  <button onclick="descargar('pdf')">Exportar PDF</button>
-  <pre id="out"></pre>
-<script>
-  const v = id => document.getElementById(id).value;
-  const out = o => document.getElementById('out').textContent = JSON.stringify(o, null, 2);
-  function call(fn, ...args){ google.script.run.withSuccessHandler(out).withFailureHandler(out)[fn](...args); }
-  function descargar(fmt){
-    google.script.run.withSuccessHandler(r=>{
-      if(!r.ok) return out(r);
-      const a=document.createElement('a');
-      a.href='data:'+r.data.mime+';base64,'+r.data.base64; a.download=r.data.nombre; a.click();
-    }).exportarMovimientos({}, fmt);
-  }
-  google.script.run.withSuccessHandler(r=>{
-    document.getElementById('sesion').textContent = r.ok ? `${r.data.nombre} — ${r.data.rol}` : r.error;
-    google.script.run.withSuccessHandler(c=>{
-      if(c.ok) document.getElementById('caseta').innerHTML = c.data.map(x=>`<option value="${x.ID}">${x.Nombre}</option>`).join('');
-    }).listarCasetasActivas();
-  }).login();
-</script>
+<body class="bg-mist text-ink font-sans">
+
+  <!-- ===================== Pantalla: verificación de sesión ===================== -->
+  <div id="screen-loading" class="min-h-screen flex items-center justify-center p-6" role="status" aria-live="polite">
+    <div class="card w-full max-w-sm p-6 text-center">
+      <div class="mx-auto w-14 h-14 rounded-md bg-navy text-white flex items-center justify-center">
+        <i data-lucide="shield-check" class="w-7 h-7"></i>
+      </div>
+      <h1 class="mt-4 font-display font-extrabold text-xl text-navy">Control Vehicular UAT</h1>
+      <p class="mono text-[11px] font-semibold tracking-wider uppercase text-ink-muted mt-1">CUTM Sur · Acceso Vehicular</p>
+      <div class="mt-6 flex items-center justify-center gap-3 text-navy">
+        <span class="spinner"></span>
+        <span class="text-sm font-semibold">Verificando sesión institucional…</span>
+      </div>
+      <div class="mt-6 space-y-2" aria-hidden="true">
+        <div class="skeleton h-3 w-full"></div>
+        <div class="skeleton h-3 w-4/5 mx-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== Pantalla: acceso denegado ===================== -->
+  <div id="screen-denied" class="min-h-screen flex items-center justify-center p-6" hidden>
+    <div class="card w-full max-w-md overflow-hidden" role="alert">
+      <div class="bg-bad text-white px-5 py-4 flex items-center gap-3">
+        <i data-lucide="shield-x" class="w-7 h-7"></i>
+        <h1 id="denied-title" class="font-display font-extrabold text-xl">Acceso Denegado</h1>
+      </div>
+      <div class="p-5">
+        <p id="denied-message" class="text-ink font-medium leading-relaxed"></p>
+        <div class="state-block state-warn mt-4 text-sm">
+          <p class="font-semibold">¿Qué puedo hacer?</p>
+          <ul class="list-disc pl-5 mt-1 space-y-0.5 text-ink">
+            <li>Verifique que inició sesión con su cuenta institucional UAT.</li>
+            <li>Solicite al administrador del sistema el alta o activación de su cuenta.</li>
+          </ul>
+        </div>
+        <button id="btn-retry-login" type="button" class="btn btn-secondary w-full mt-5">
+          <i data-lucide="refresh-cw" class="w-5 h-5"></i>Reintentar verificación
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== Aplicación ===================== -->
+  <div id="app-shell" hidden>
+
+    <!-- Sidebar escritorio -->
+    <aside class="hidden lg:flex fixed inset-y-0 left-0 w-64 bg-navy text-white flex-col z-40 no-print" aria-label="Menú principal">
+      <div class="px-5 py-5 border-b border-white/10">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded bg-accent flex items-center justify-center shrink-0">
+            <i data-lucide="car-front" class="w-6 h-6"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="font-display font-extrabold leading-tight">Control Vehicular</p>
+            <p class="mono text-[11px] tracking-wider uppercase text-white/60">UAT · CUTM Sur</p>
+          </div>
+        </div>
+      </div>
+      <nav id="nav-desktop" class="flex-1 p-3 space-y-1 overflow-y-auto">
+        <button type="button" class="nav-item" data-nav="operacion" data-perm="operacion" hidden>
+          <i data-lucide="car-front" class="w-5 h-5"></i>Operación
+        </button>
+        <button type="button" class="nav-item" data-nav="consultas" data-perm="consulta" hidden>
+          <i data-lucide="search" class="w-5 h-5"></i>Consultas
+        </button>
+        <button type="button" class="nav-item" data-nav="reportes" data-perm="reportes" hidden>
+          <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>Reportes
+        </button>
+        <button type="button" class="nav-item" data-nav="catalogos" data-perm="catalogo.leer" hidden>
+          <i data-lucide="database" class="w-5 h-5"></i>Catálogos
+        </button>
+      </nav>
+      <div class="p-4 border-t border-white/10">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded bg-white text-navy font-display font-extrabold flex items-center justify-center shrink-0" data-session="iniciales">--</div>
+          <div class="min-w-0">
+            <p class="font-semibold text-sm truncate" data-session="nombre"></p>
+            <p class="mono text-[11px] uppercase tracking-wide text-accent truncate" data-session="rol"></p>
+            <p class="text-[11px] text-white/60 truncate" data-session="correo"></p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="lg:pl-64 min-h-screen flex flex-col">
+      <!-- Barra superior -->
+      <header class="sticky top-0 z-30 bg-white border-b border-line no-print">
+        <div class="h-16 px-3 sm:px-4 lg:px-6 flex items-center gap-3">
+          <div class="lg:hidden w-9 h-9 rounded bg-navy text-white flex items-center justify-center shrink-0">
+            <i data-lucide="car-front" class="w-5 h-5"></i>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="mono text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase text-ink-muted truncate">UAT CUTM Sur · Control Vehicular</p>
+            <h1 id="page-title" class="font-display font-bold text-navy text-base sm:text-lg leading-tight truncate">Operación</h1>
+          </div>
+          <div id="header-caseta-wrap" class="lg:hidden w-[46%] max-w-[220px] shrink-0" hidden>
+            <label for="header-caseta" class="sr-only">Caseta activa</label>
+            <select id="header-caseta" class="field !min-h-[40px] !py-1.5 !text-[13px] font-semibold text-navy" data-caseta-select disabled>
+              <option value="">Cargando…</option>
+            </select>
+          </div>
+          <div class="hidden lg:flex items-center gap-3 shrink-0">
+            <div class="text-right">
+              <p class="text-sm font-semibold text-ink" data-session="nombre"></p>
+              <p class="mono text-[11px] uppercase tracking-wide text-ink-muted" data-session="rol"></p>
+            </div>
+            <div class="w-9 h-9 rounded bg-navy text-white font-display font-bold flex items-center justify-center" data-session="iniciales">--</div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Vistas -->
+      <main id="main" class="flex-1 w-full max-w-[1400px] mx-auto px-3 sm:px-4 lg:px-6 py-4 pb-28 lg:pb-8">
+        <?!= include('ViewOperacion') ?>
+
+        <section id="view-consultas" data-view="consultas" hidden aria-label="Consultas">
+          <div class="card p-6 text-center text-ink-muted">
+            <i data-lucide="search" class="w-8 h-8 mx-auto text-navy"></i>
+            <p class="mt-2 font-display font-bold text-navy">Consultas de movimientos</p>
+            <p class="text-sm mt-1">Módulo en preparación.</p>
+          </div>
+        </section>
+
+        <section id="view-reportes" data-view="reportes" hidden aria-label="Reportes">
+          <div class="card p-6 text-center text-ink-muted">
+            <i data-lucide="file-spreadsheet" class="w-8 h-8 mx-auto text-navy"></i>
+            <p class="mt-2 font-display font-bold text-navy">Reportes y exportación</p>
+            <p class="text-sm mt-1">Módulo en preparación.</p>
+          </div>
+        </section>
+
+        <section id="view-catalogos" data-view="catalogos" hidden aria-label="Catálogos">
+          <div class="card p-6 text-center text-ink-muted">
+            <i data-lucide="database" class="w-8 h-8 mx-auto text-navy"></i>
+            <p class="mt-2 font-display font-bold text-navy">Catálogos maestros</p>
+            <p class="text-sm mt-1">Módulo en preparación.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Navegación inferior móvil -->
+    <nav id="nav-mobile" class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-line pb-safe no-print" aria-label="Navegación">
+      <div id="nav-mobile-grid" class="grid">
+        <button type="button" class="bnav-item" data-nav="operacion" data-perm="operacion" hidden>
+          <i data-lucide="car-front" class="w-[22px] h-[22px]"></i><span>Operación</span>
+        </button>
+        <button type="button" class="bnav-item" data-nav="consultas" data-perm="consulta" hidden>
+          <i data-lucide="search" class="w-[22px] h-[22px]"></i><span>Consultas</span>
+        </button>
+        <button type="button" class="bnav-item" data-nav="reportes" data-perm="reportes" hidden>
+          <i data-lucide="file-spreadsheet" class="w-[22px] h-[22px]"></i><span>Reportes</span>
+        </button>
+        <button type="button" class="bnav-item" data-nav="catalogos" data-perm="catalogo.leer" hidden>
+          <i data-lucide="database" class="w-[22px] h-[22px]"></i><span>Catálogos</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <!-- Notificaciones -->
+  <div id="toast-container" class="no-print" aria-live="polite"></div>
+
+  <?!= include('ClientJS') ?>
 </body>
 </html>

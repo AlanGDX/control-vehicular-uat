@@ -1,0 +1,1144 @@
+<!-- ClientJS.html — Lógica de cliente: runGas, sesión/permisos, navegación SPA, toasts, modales, operación de caseta y lector QR -->
+<script>
+'use strict';
+
+/* =====================================================================
+ * Estado global y constantes
+ * ===================================================================== */
+const STATE = {
+  session: null,       // { correo, nombre, rol, caseta, permisos[] }
+  casetas: [],         // casetas activas
+  casetaId: '',        // caseta activa del operador
+  currentView: null,
+  dentro: [],          // resultado completo de vehiculosDentro()
+  dentroLoaded: false
+};
+
+const VIEW_PERMS = { operacion: 'operacion', consultas: 'consulta', reportes: 'reportes', catalogos: 'catalogo.leer' };
+const VIEW_TITLES = { operacion: 'Operación de Caseta', consultas: 'Consultas', reportes: 'Reportes', catalogos: 'Catálogos' };
+const VIEW_ORDER = ['operacion', 'consultas', 'reportes', 'catalogos'];
+const VIEW_HOOKS = {};          // vista -> { onShow, onHide }
+const MODAL_CLOSE_HOOKS = {};   // id de modal -> función al cerrar
+const REGEX_PLACA = /^[A-Z0-9]{5,8}$/;
+const STORAGE_KEY_CASETA = 'cvuat.casetaId';
+const DENTRO_REFRESH_MS = 60000;
+
+/* =====================================================================
+ * Utilidades
+ * ===================================================================== */
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.prototype.slice.call((root || document).querySelectorAll(sel));
+
+function escapeHtml(v) {
+  return String(v === null || v === undefined ? '' : v).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function normalizarPlaca(v) {
+  return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function debounce(fn, ms) {
+  let t = null;
+  const wrapped = function () {
+    const args = arguments;
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(null, args), ms);
+  };
+  wrapped.cancel = () => clearTimeout(t);
+  return wrapped;
+}
+
+function refreshIcons() {
+  if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+}
+
+function hasPerm(p) {
+  return !!(STATE.session && STATE.session.permisos.indexOf(p) !== -1);
+}
+
+function esActivo(v) {
+  return !(v === false || String(v).toUpperCase() === 'FALSE');
+}
+
+/** "2026-11-20T08:14:05" -> "08:14" */
+function horaDe(iso) {
+  return iso && String(iso).length >= 16 ? String(iso).substring(11, 16) : '--:--';
+}
+
+/** "2026-11-20T08:14:05" -> "20/11 08:14" */
+function fechaHoraCorta(iso) {
+  const s = String(iso || '');
+  if (s.length < 16) return '--';
+  return s.substring(8, 10) + '/' + s.substring(5, 7) + ' ' + s.substring(11, 16);
+}
+
+/** 3.25 -> "3 h 15 min" */
+function formatHoras(h) {
+  const total = Math.max(0, Math.round(Number(h || 0) * 60));
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
+  return hh ? hh + ' h ' + String(mm).padStart(2, '0') + ' min' : mm + ' min';
+}
+
+function horaActual() {
+  return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+function iniciales(nombre) {
+  const partes = String(nombre || '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '--';
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase();
+}
+
+function storageGet(k) {
+  try { return window.localStorage.getItem(k); } catch (e) { return null; }
+}
+
+function storageSet(k, v) {
+  try { window.localStorage.setItem(k, v); } catch (e) { /* almacenamiento no disponible en el iframe */ }
+}
+
+function valorCampo(id) {
+  const el = document.getElementById(id);
+  return el ? String(el.value || '').trim() : '';
+}
+
+function esEscritorio() {
+  return window.matchMedia('(min-width: 1024px)').matches;
+}
+
+/* =====================================================================
+ * runGas: Promesa sobre google.script.run con manejo de {ok, data, error}
+ * ===================================================================== */
+class GasError extends Error {
+  constructor(message, fromBackend) {
+    super(message);
+    this.name = 'GasError';
+    this.fromBackend = !!fromBackend;
+  }
+}
+
+function runGas(fnName) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return new Promise((resolve, reject) => {
+    if (!window.google || !google.script || !google.script.run) {
+      reject(new GasError('El entorno de Google Apps Script no está disponible. Abra el sistema desde su URL de implementación.', false));
+      return;
+    }
+    const runner = google.script.run
+      .withSuccessHandler(res => {
+        if (res && typeof res === 'object' && Object.prototype.hasOwnProperty.call(res, 'ok')) {
+          if (res.ok) resolve(res.data);
+          else reject(new GasError(res.error || 'Error desconocido del servidor.', true));
+        } else {
+          resolve(res);
+        }
+      })
+      .withFailureHandler(err => {
+        const msg = err && err.message ? err.message : String(err || 'Error de comunicación con el servidor.');
+        reject(new GasError('Error de comunicación: ' + msg, false));
+      });
+    if (typeof runner[fnName] !== 'function') {
+      reject(new GasError('Función de servidor no disponible: ' + fnName, false));
+      return;
+    }
+    runner[fnName].apply(runner, args);
+  });
+}
+
+/** Ejecuta una tarea asíncrona bloqueando el botón (evita dobles clics). */
+async function withBusy(btn, busyLabel, task) {
+  if (!btn) return task();
+  if (btn.getAttribute('aria-busy') === 'true') return undefined;
+  const original = btn.innerHTML;
+  const wasDisabled = btn.disabled;
+  btn.setAttribute('aria-busy', 'true');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span><span>' + escapeHtml(busyLabel) + '</span>';
+  try {
+    return await task();
+  } finally {
+    btn.innerHTML = original;
+    btn.removeAttribute('aria-busy');
+    btn.disabled = wasDisabled;
+    refreshIcons();
+  }
+}
+
+/* =====================================================================
+ * Toasts
+ * ===================================================================== */
+const TOAST_ICONS = { success: 'circle-check', error: 'circle-x', warning: 'triangle-alert', info: 'info' };
+const TOAST_MAX = 4;
+
+function showToast(message, type, ms) {
+  const kind = TOAST_ICONS[type] ? type : 'info';
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + kind;
+  el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  el.innerHTML =
+    '<i data-lucide="' + TOAST_ICONS[kind] + '" class="toast-icon w-5 h-5 mt-0.5"></i>' +
+    '<div class="flex-1 min-w-0 break-words">' + escapeHtml(message) + '</div>' +
+    '<button type="button" class="text-ink-muted hover:text-ink w-6 h-6 flex items-center justify-center" aria-label="Cerrar notificación">' +
+    '<i data-lucide="x" class="w-4 h-4"></i></button>';
+  container.appendChild(el);
+  while (container.children.length > TOAST_MAX) container.removeChild(container.firstChild);
+  refreshIcons();
+  const close = () => {
+    if (el.classList.contains('leaving')) return;
+    el.classList.add('leaving');
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 180);
+  };
+  el.querySelector('button').addEventListener('click', close);
+  setTimeout(close, ms || (kind === 'error' ? 7000 : 4000));
+}
+
+/* =====================================================================
+ * Modales
+ * ===================================================================== */
+function openModal(id) {
+  const m = document.getElementById(id);
+  if (!m) return;
+  m.hidden = false;
+  document.body.classList.add('modal-open');
+  refreshIcons();
+}
+
+function closeModal(id) {
+  const m = document.getElementById(id);
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  if (!$$('.modal').some(x => !x.hidden)) document.body.classList.remove('modal-open');
+  if (MODAL_CLOSE_HOOKS[id]) MODAL_CLOSE_HOOKS[id]();
+}
+
+function bindModales() {
+  document.addEventListener('click', e => {
+    const closer = e.target.closest('[data-close-modal]');
+    if (closer) { closeModal(closer.getAttribute('data-close-modal')); return; }
+    if (e.target.classList && e.target.classList.contains('modal')) closeModal(e.target.id);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const abiertos = $$('.modal').filter(x => !x.hidden);
+    if (abiertos.length) closeModal(abiertos[abiertos.length - 1].id);
+  });
+}
+
+/* =====================================================================
+ * Pantallas, sesión y permisos
+ * ===================================================================== */
+function showScreen(name) {
+  $('#screen-loading').hidden = name !== 'loading';
+  $('#screen-denied').hidden = name !== 'denied';
+  $('#app-shell').hidden = name !== 'app';
+  refreshIcons();
+}
+
+function mostrarAccesoDenegado(err) {
+  const backend = !!(err && err.fromBackend);
+  $('#denied-title').textContent = backend ? 'Acceso Denegado' : 'No se pudo verificar la sesión';
+  $('#denied-message').textContent = (err && err.message) || 'No fue posible validar su cuenta institucional.';
+  showScreen('denied');
+}
+
+async function iniciarSesion() {
+  showScreen('loading');
+  let sesion;
+  try {
+    sesion = await runGas('login');
+  } catch (e) {
+    mostrarAccesoDenegado(e);
+    return;
+  }
+  sesion = sesion || {};
+  sesion.permisos = Array.isArray(sesion.permisos) ? sesion.permisos : [];
+  STATE.session = sesion;
+
+  const permitidas = VIEW_ORDER.filter(v => hasPerm(VIEW_PERMS[v]));
+  if (!permitidas.length) {
+    mostrarAccesoDenegado(new GasError('Su rol (' + (sesion.rol || 'sin rol') + ') no tiene módulos habilitados. Contacte al administrador.', true));
+    return;
+  }
+
+  renderSesion();
+  aplicarPermisos();
+  showScreen('app');
+  navigate(permitidas[0]);
+  cargarCasetas();
+}
+
+function renderSesion() {
+  const s = STATE.session;
+  $$('[data-session="nombre"]').forEach(el => { el.textContent = s.nombre || s.correo || ''; });
+  $$('[data-session="rol"]').forEach(el => { el.textContent = s.rol || ''; });
+  $$('[data-session="correo"]').forEach(el => { el.textContent = s.correo || ''; });
+  $$('[data-session="iniciales"]').forEach(el => { el.textContent = iniciales(s.nombre || s.correo); el.title = (s.nombre || '') + ' · ' + (s.rol || ''); });
+}
+
+/** Muestra/oculta pestañas y secciones leyendo estrictamente session.permisos. */
+function aplicarPermisos() {
+  $$('[data-perm]').forEach(el => { el.hidden = !hasPerm(el.getAttribute('data-perm')); });
+  const visibles = $$('#nav-mobile-grid [data-nav]').filter(el => !el.hidden).length;
+  $('#nav-mobile-grid').style.gridTemplateColumns = 'repeat(' + Math.max(1, visibles) + ', minmax(0, 1fr))';
+  $('#header-caseta-wrap').hidden = !hasPerm('operacion');
+  $$('[data-view]').forEach(sec => {
+    const perm = VIEW_PERMS[sec.getAttribute('data-view')];
+    if (!perm || !hasPerm(perm)) sec.hidden = true;
+  });
+}
+
+/* =====================================================================
+ * Navegación SPA
+ * ===================================================================== */
+function navigate(view) {
+  const perm = VIEW_PERMS[view];
+  if (!perm || !hasPerm(perm)) {
+    showToast('No tiene permiso para acceder a este módulo.', 'warning');
+    return;
+  }
+  if (STATE.currentView === view) return;
+  const prev = STATE.currentView;
+  if (prev && VIEW_HOOKS[prev] && VIEW_HOOKS[prev].onHide) VIEW_HOOKS[prev].onHide();
+
+  $$('[data-view]').forEach(sec => { sec.hidden = sec.getAttribute('data-view') !== view; });
+  $$('[data-nav]').forEach(btn => {
+    if (btn.getAttribute('data-nav') === view) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
+  $('#page-title').textContent = VIEW_TITLES[view] || '';
+  STATE.currentView = view;
+  window.scrollTo(0, 0);
+  if (VIEW_HOOKS[view] && VIEW_HOOKS[view].onShow) VIEW_HOOKS[view].onShow();
+  refreshIcons();
+}
+
+function bindNavegacion() {
+  $$('[data-nav]').forEach(btn => {
+    btn.addEventListener('click', () => navigate(btn.getAttribute('data-nav')));
+  });
+  $('#btn-retry-login').addEventListener('click', iniciarSesion);
+}
+
+/* =====================================================================
+ * Casetas
+ * ===================================================================== */
+async function cargarCasetas() {
+  try {
+    const data = await runGas('listarCasetasActivas');
+    STATE.casetas = Array.isArray(data) ? data : [];
+  } catch (e) {
+    STATE.casetas = [];
+    showToast('No se pudieron cargar las casetas: ' + e.message, 'error');
+  }
+  renderCasetaSelects();
+  setCaseta(resolverCasetaInicial(), { silent: true });
+}
+
+function buscarCaseta(valor) {
+  const v = String(valor || '').trim().toLowerCase();
+  if (!v) return null;
+  return STATE.casetas.find(c => String(c.ID).toLowerCase() === v || String(c.Nombre).toLowerCase() === v) || null;
+}
+
+/** Prioridad: caseta asignada en la sesión -> última usada en el dispositivo -> única caseta disponible. */
+function resolverCasetaInicial() {
+  const asignada = buscarCaseta(STATE.session && STATE.session.caseta);
+  if (asignada) return asignada.ID;
+  const guardada = buscarCaseta(storageGet(STORAGE_KEY_CASETA));
+  if (guardada) return guardada.ID;
+  return STATE.casetas.length === 1 ? STATE.casetas[0].ID : '';
+}
+
+function casetaNombre(id) {
+  const c = STATE.casetas.find(x => String(x.ID) === String(id));
+  return c ? c.Nombre : '';
+}
+
+function renderCasetaSelects() {
+  const opciones = STATE.casetas.map(c =>
+    '<option value="' + escapeHtml(c.ID) + '">' + escapeHtml(c.Nombre) + '</option>').join('');
+  $$('select[data-caseta-select]').forEach(sel => {
+    sel.innerHTML = '<option value="">' + (STATE.casetas.length ? 'Seleccione caseta…' : 'Sin casetas activas') + '</option>' + opciones;
+    sel.disabled = !STATE.casetas.length;
+    sel.value = STATE.casetaId;
+  });
+  $$('select[data-caseta-filter]').forEach(sel => {
+    const actual = sel.value;
+    sel.innerHTML = '<option value="">Todas las casetas</option>' + opciones;
+    sel.value = STATE.casetas.some(c => String(c.ID) === actual) ? actual : '';
+  });
+}
+
+function setCaseta(id, opts) {
+  const c = buscarCaseta(id);
+  STATE.casetaId = c ? c.ID : '';
+  $$('select[data-caseta-select]').forEach(sel => { sel.value = STATE.casetaId; });
+  if (STATE.casetaId) storageSet(STORAGE_KEY_CASETA, STATE.casetaId);
+  document.dispatchEvent(new CustomEvent('caseta:change', { detail: { casetaId: STATE.casetaId } }));
+  if (!(opts && opts.silent) && c) showToast('Caseta activa: ' + c.Nombre, 'info', 2500);
+}
+
+function bindCasetaSelects() {
+  $$('select[data-caseta-select]').forEach(sel => {
+    sel.addEventListener('change', () => setCaseta(sel.value));
+  });
+}
+
+/* =====================================================================
+ * Vista Operación
+ * ===================================================================== */
+const OP = {
+  placa: '',
+  vehiculo: null,        // vehículo exacto encontrado en catálogo
+  resultados: [],        // autocompletado
+  acIndex: -1,
+  lookupSeq: 0,
+  lookupDone: false,
+  lookupError: '',
+  submitting: false,
+  catalogoGuardadoPara: '',  // placa cuyo visitante ya se guardó en catálogo (evita duplicados al reintentar)
+  salidasPendientes: {},     // movimientoId -> true mientras se registra su salida (evita dobles clics)
+  dentroLoading: false,
+  dentroError: '',
+  refreshTimer: null,
+  scanner: null,
+  qrProcesando: false
+};
+
+const buscarPlacaDebounced = debounce(() => consultarPlaca(), 250);
+
+function initOperacion() {
+  const input = $('#placa-input');
+
+  input.addEventListener('input', () => {
+    const limpia = normalizarPlaca(input.value).slice(0, 8);
+    if (input.value !== limpia) input.value = limpia;
+    cambiarPlaca(limpia);
+    buscarPlacaDebounced();
+  });
+  input.addEventListener('keydown', onPlacaKeydown);
+  input.addEventListener('focus', renderAutocomplete);
+  input.addEventListener('blur', () => setTimeout(cerrarAutocomplete, 150));
+
+  $('#btn-placa-clear').addEventListener('click', () => { limpiarFormularioEntrada(); });
+  $('#btn-scan-qr').addEventListener('click', abrirLectorQR);
+  $('#btn-registrar-entrada').addEventListener('click', registrarEntrada);
+  $('#btn-cierre-turno').addEventListener('click', abrirCierreTurno);
+  $('#btn-cierre-confirmar').addEventListener('click', confirmarCierreTurno);
+  $('#btn-dentro-refresh').addEventListener('click', () => cargarDentro(false));
+  $('#dentro-search').addEventListener('input', renderDentro);
+  $('#dentro-filter').addEventListener('change', renderDentro);
+
+  $('#ac-list').addEventListener('mousedown', e => {
+    const item = e.target.closest('[data-ac-index]');
+    if (!item) return;
+    e.preventDefault();
+    seleccionarResultado(Number(item.getAttribute('data-ac-index')));
+  });
+
+  $('#dentro-list').addEventListener('click', e => {
+    const btn = e.target.closest('[data-action="salida"]');
+    if (btn) registrarSalida(btn.getAttribute('data-id'), btn);
+    const retry = e.target.closest('[data-action="reintentar-dentro"]');
+    if (retry) cargarDentro(false);
+  });
+
+  $('#btn-ya-dentro-salida').addEventListener('click', async e => {
+    const btn = e.currentTarget;
+    const ok = await registrarSalida(btn.getAttribute('data-id'), btn);
+    if (ok) limpiarFormularioEntrada();
+  });
+
+  ['vis-nombre', 'vis-identificacion', 'vis-telefono', 'vis-motivo', 'vis-marca', 'vis-modelo', 'vis-color'].forEach(id => {
+    $('#' + id).addEventListener('input', updateEntradaButton);
+  });
+  $('#vis-tipo').addEventListener('change', actualizarFormVisitante);
+  $('#vis-catalogo').addEventListener('change', actualizarFormVisitante);
+  $('#vis-vehiculo').addEventListener('change', actualizarFormVisitante);
+  $('#entrada-obs').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); registrarEntrada(); }
+  });
+
+  $('#qr-file-input').addEventListener('change', leerQRDesdeArchivo);
+  $('#btn-qr-retry').addEventListener('click', iniciarCamaraQR);
+  MODAL_CLOSE_HOOKS['modal-qr'] = detenerCamaraQR;
+
+  document.addEventListener('caseta:change', () => {
+    renderEstadoCaseta();
+    updateEntradaButton();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && STATE.currentView === 'operacion' && STATE.dentroLoaded) cargarDentro(true);
+  });
+
+  VIEW_HOOKS.operacion = {
+    onShow: () => {
+      renderEstadoCaseta();
+      renderVehiculo();
+      cargarDentro(STATE.dentroLoaded);
+      clearInterval(OP.refreshTimer);
+      OP.refreshTimer = setInterval(() => { if (!document.hidden) cargarDentro(true); }, DENTRO_REFRESH_MS);
+      if (esEscritorio()) setTimeout(() => $('#placa-input').focus(), 50);
+    },
+    onHide: () => {
+      clearInterval(OP.refreshTimer);
+      OP.refreshTimer = null;
+    }
+  };
+
+  renderEstadoCaseta();
+  renderVehiculo();
+}
+
+function renderEstadoCaseta() {
+  const el = $('#op-caseta-status');
+  if (!el) return;
+  if (STATE.casetaId) {
+    el.className = 'mt-1.5 text-xs font-semibold flex items-center gap-1.5 text-ok';
+    el.innerHTML = '<i data-lucide="map-pin" class="w-3.5 h-3.5"></i>Operando en ' + escapeHtml(casetaNombre(STATE.casetaId));
+  } else {
+    el.className = 'mt-1.5 text-xs font-semibold flex items-center gap-1.5 text-warn';
+    el.innerHTML = '<i data-lucide="triangle-alert" class="w-3.5 h-3.5"></i>Seleccione la caseta desde la que opera para registrar movimientos.';
+  }
+  refreshIcons();
+}
+
+/* ---------- Placa y autocompletado ---------- */
+function cambiarPlaca(placa) {
+  OP.placa = placa;
+  OP.vehiculo = null;
+  OP.lookupDone = false;
+  OP.lookupError = '';
+  OP.acIndex = -1;
+  if (placa.length < 2) { OP.resultados = []; OP.lookupSeq++; }
+  renderAutocomplete();
+  renderVehiculo();
+}
+
+async function consultarPlaca() {
+  const p = OP.placa;
+  if (p.length < 2) return;
+  const seq = ++OP.lookupSeq;
+  try {
+    const data = await runGas('buscarVehiculoPorPlaca', p);
+    if (seq !== OP.lookupSeq || p !== OP.placa) return;
+    OP.resultados = Array.isArray(data) ? data : [];
+    OP.vehiculo = OP.resultados.find(v => normalizarPlaca(v.Placa) === p) || null;
+    OP.lookupError = '';
+  } catch (e) {
+    if (seq !== OP.lookupSeq || p !== OP.placa) return;
+    OP.resultados = [];
+    OP.vehiculo = null;
+    OP.lookupError = 'No se pudo consultar el catálogo: ' + e.message;
+  }
+  OP.lookupDone = true;
+  OP.acIndex = -1;
+  renderAutocomplete();
+  renderVehiculo();
+}
+
+/** Asigna una placa directamente (QR o selección) y consulta de inmediato. */
+function aplicarPlaca(placa) {
+  const p = normalizarPlaca(placa).slice(0, 8);
+  $('#placa-input').value = p;
+  buscarPlacaDebounced.cancel();
+  cambiarPlaca(p);
+  cerrarAutocomplete();
+  consultarPlaca();
+}
+
+function seleccionarResultado(i) {
+  const v = OP.resultados[i];
+  if (!v) return;
+  const p = normalizarPlaca(v.Placa);
+  buscarPlacaDebounced.cancel();
+  OP.lookupSeq++;
+  $('#placa-input').value = p;
+  OP.placa = p;
+  OP.vehiculo = v;
+  OP.resultados = [v];
+  OP.lookupDone = true;
+  OP.lookupError = '';
+  cerrarAutocomplete();
+  renderVehiculo();
+}
+
+function autocompleteVisible() {
+  const r = OP.resultados;
+  if (!r.length || document.activeElement !== $('#placa-input')) return false;
+  return !(r.length === 1 && normalizarPlaca(r[0].Placa) === OP.placa);
+}
+
+function renderAutocomplete() {
+  const list = $('#ac-list');
+  const input = $('#placa-input');
+  if (!autocompleteVisible()) { cerrarAutocomplete(); return; }
+  list.innerHTML = OP.resultados.map((v, i) => {
+    const desc = [v.Marca, v.Modelo, v.Color].filter(Boolean).join(' · ') || 'Sin datos del vehículo';
+    const inactivo = !esActivo(v.Activo);
+    return '<button type="button" class="ac-item" role="option" data-ac-index="' + i + '" aria-selected="' + (i === OP.acIndex) + '">' +
+      '<span class="plate">' + escapeHtml(v.Placa) + '</span>' +
+      '<span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-ink truncate">' + escapeHtml(desc) + '</span>' +
+      '<span class="block text-xs text-ink-muted truncate">' + escapeHtml(v.TitularNombre || 'Sin titular') + ' · ' + escapeHtml(v.TipoTitular || '') + '</span></span>' +
+      (inactivo ? '<span class="badge badge-bad">Baja</span>' : '') +
+      '</button>';
+  }).join('');
+  list.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+}
+
+function cerrarAutocomplete() {
+  const list = $('#ac-list');
+  if (!list) return;
+  list.hidden = true;
+  $('#placa-input').setAttribute('aria-expanded', 'false');
+}
+
+function onPlacaKeydown(e) {
+  const abierto = !$('#ac-list').hidden;
+  if (e.key === 'ArrowDown' && abierto) {
+    e.preventDefault();
+    OP.acIndex = Math.min(OP.acIndex + 1, OP.resultados.length - 1);
+    renderAutocomplete();
+  } else if (e.key === 'ArrowUp' && abierto) {
+    e.preventDefault();
+    OP.acIndex = Math.max(OP.acIndex - 1, 0);
+    renderAutocomplete();
+  } else if (e.key === 'Escape' && abierto) {
+    e.stopPropagation();
+    cerrarAutocomplete();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (abierto && OP.acIndex >= 0) { seleccionarResultado(OP.acIndex); return; }
+    if (!OP.lookupDone && OP.placa.length >= 2) { buscarPlacaDebounced.cancel(); consultarPlaca(); return; }
+    registrarEntrada();
+  }
+}
+
+/* ---------- Tarjeta de vehículo / formulario de visitante ---------- */
+function tarjetaVehiculoHtml(v) {
+  const activo = esActivo(v.Activo);
+  const campo = (etiqueta, valor, extra) =>
+    '<div class="' + (extra || '') + '"><dt class="field-label !mb-0.5">' + etiqueta + '</dt>' +
+    '<dd class="text-[15px] font-semibold text-ink break-words">' + (valor ? escapeHtml(valor) : '<span class="text-ink-faint">—</span>') + '</dd></div>';
+  const titulo = [v.Marca, v.Modelo].filter(Boolean).join(' ') || 'Vehículo registrado';
+  return '' +
+    '<div class="flex items-start justify-between gap-3 flex-wrap">' +
+      '<span class="plate plate-xl">' + escapeHtml(v.Placa) + '</span>' +
+      (activo
+        ? '<span class="badge badge-ok"><i data-lucide="badge-check"></i>Registrado</span>'
+        : '<span class="badge badge-bad"><i data-lucide="ban"></i>Dado de baja</span>') +
+    '</div>' +
+    '<p class="mt-3 font-display font-bold text-lg text-navy leading-tight">' + escapeHtml(titulo) +
+      (v.Color ? ' <span class="text-ink-muted font-semibold">· ' + escapeHtml(v.Color) + '</span>' : '') + '</p>' +
+    (activo ? '' :
+      '<div class="state-block state-bad mt-3 flex items-start gap-2" role="alert">' +
+        '<i data-lucide="shield-x" class="w-5 h-5 mt-0.5"></i>' +
+        '<div><p class="font-bold text-sm uppercase tracking-wide">Vehículo dado de baja</p>' +
+        '<p class="text-xs text-ink mt-0.5">Acceso no autorizado. Comuníquese con el administrador.</p></div>' +
+      '</div>') +
+    '<dl class="mt-3 pt-3 border-t border-line grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">' +
+      campo('Marca', v.Marca) +
+      campo('Modelo', v.Modelo) +
+      campo('Color', v.Color) +
+      campo('Tipo de titular', v.TipoTitular) +
+      campo('Titular', v.TitularNombre, 'col-span-2') +
+    '</dl>';
+}
+
+function renderVehiculo() {
+  const p = OP.placa;
+  const valida = REGEX_PLACA.test(p);
+  const hint = $('#placa-hint');
+
+  $('#btn-placa-clear').hidden = !p;
+
+  if (!p) hint.textContent = 'Formato: 5 a 8 letras y números, sin guiones ni espacios.';
+  else if (!valida) hint.textContent = p.length + '/8 caracteres · mínimo 5';
+  else if (!OP.lookupDone) hint.textContent = 'Consultando catálogo…';
+  else if (OP.vehiculo) hint.textContent = 'Vehículo encontrado en el catálogo.';
+  else hint.textContent = 'Placa no registrada en el catálogo.';
+
+  $('#veh-skeleton').hidden = !(valida && !OP.lookupDone);
+
+  const card = $('#veh-card');
+  card.hidden = !(valida && OP.lookupDone && OP.vehiculo);
+  card.innerHTML = card.hidden ? '' : tarjetaVehiculoHtml(OP.vehiculo);
+
+  const visForm = $('#visitor-form');
+  visForm.hidden = !(valida && OP.lookupDone && !OP.vehiculo);
+  const errEl = $('#vis-lookup-error');
+  errEl.hidden = !OP.lookupError;
+  errEl.textContent = OP.lookupError;
+  if (!visForm.hidden) actualizarFormVisitante();
+
+  const mov = valida ? STATE.dentro.find(m => normalizarPlaca(m.Placa) === p) : null;
+  const box = $('#ya-dentro');
+  box.hidden = !mov;
+  if (mov) {
+    $('#ya-dentro-detalle').textContent = 'Entró por ' + (mov.CasetaEntrada || 'caseta desconocida') +
+      ' el ' + fechaHoraCorta(mov.FechaHoraEntrada) + ' · ' + formatHoras(mov.horasDentro) + ' dentro.';
+    const btn = $('#btn-ya-dentro-salida');
+    btn.setAttribute('data-id', mov.ID);
+    btn.hidden = !hasPerm('operacion');
+  }
+
+  updateEntradaButton();
+  refreshIcons();
+}
+
+function catalogoSeleccionado() {
+  return hasPerm('vehiculo.escribir') &&
+    valorCampo('vis-tipo') === 'Visitante' &&
+    $('#vis-catalogo').checked &&
+    OP.catalogoGuardadoPara !== OP.placa;
+}
+
+function actualizarFormVisitante() {
+  const puedeCatalogo = hasPerm('vehiculo.escribir') && valorCampo('vis-tipo') === 'Visitante' && OP.catalogoGuardadoPara !== OP.placa;
+  $('#vis-catalogo-wrap').hidden = !puedeCatalogo;
+  $('#vis-catalogo-fields').hidden = !(puedeCatalogo && $('#vis-catalogo').checked);
+  $('#vis-vehiculo-fields').hidden = !(puedeCatalogo && $('#vis-catalogo').checked && $('#vis-vehiculo').checked);
+  updateEntradaButton();
+}
+
+/** Devuelve el motivo por el que no se puede registrar la entrada ('' si está listo). */
+function entradaBloqueo() {
+  if (!hasPerm('operacion')) return 'Su rol no permite registrar entradas.';
+  if (!STATE.casetaId) return 'Seleccione la caseta activa.';
+  if (!OP.placa) return 'Capture o escanee la placa del vehículo.';
+  if (!REGEX_PLACA.test(OP.placa)) return 'La placa debe tener de 5 a 8 caracteres alfanuméricos.';
+  if (!OP.lookupDone) return 'Consultando catálogo…';
+  if (OP.vehiculo && !esActivo(OP.vehiculo.Activo)) return 'Vehículo dado de baja: acceso no autorizado.';
+  if (!OP.vehiculo && catalogoSeleccionado()) {
+    if (!valorCampo('vis-nombre')) return 'Capture el nombre del visitante para guardarlo en el catálogo.';
+    if (!valorCampo('vis-identificacion')) return 'Capture la identificación del visitante para guardarlo en el catálogo.';
+    const tel = valorCampo('vis-telefono').replace(/\D/g, '');
+    if (tel && tel.length !== 10) return 'El teléfono debe tener 10 dígitos.';
+  }
+  return '';
+}
+
+function updateEntradaButton() {
+  const btn = $('#btn-registrar-entrada');
+  if (!btn || btn.getAttribute('aria-busy') === 'true') return;
+  const motivo = entradaBloqueo();
+  btn.disabled = OP.submitting || !!motivo;
+  $('#entrada-hint').textContent = OP.submitting ? '' : motivo;
+}
+
+function limpiarFormularioEntrada() {
+  buscarPlacaDebounced.cancel();
+  $('#placa-input').value = '';
+  ['vis-nombre', 'vis-identificacion', 'vis-telefono', 'vis-motivo', 'vis-marca', 'vis-modelo', 'vis-color', 'entrada-obs'].forEach(id => {
+    $('#' + id).value = '';
+  });
+  $('#vis-tipo').value = 'Visitante';
+  $('#vis-catalogo').checked = false;
+  $('#vis-vehiculo').checked = false;
+  OP.catalogoGuardadoPara = '';
+  OP.resultados = [];
+  cambiarPlaca('');
+  if (esEscritorio()) $('#placa-input').focus();
+}
+
+/* ---------- Registro de entrada ---------- */
+async function registrarEntrada() {
+  if (OP.submitting) return;
+  const motivo = entradaBloqueo();
+  if (motivo) { showToast(motivo, 'warning'); return; }
+
+  OP.submitting = true;
+  const btn = $('#btn-registrar-entrada');
+  try {
+    await withBusy(btn, 'Registrando…', async () => {
+      const placa = OP.placa;
+      const payload = { placa: placa, casetaId: STATE.casetaId };
+      const obs = valorCampo('entrada-obs');
+      if (obs) payload.observaciones = obs;
+
+      if (!OP.vehiculo) {
+        const nombre = valorCampo('vis-nombre');
+        payload.tipoUsuario = valorCampo('vis-tipo') || 'Visitante';
+        if (nombre) payload.nombreVisitante = nombre;
+
+        if (catalogoSeleccionado()) {
+          const tel = valorCampo('vis-telefono').replace(/\D/g, '');
+          const visitante = await runGas('guardarCatalogo', 'visitantes', {
+            Nombre: nombre,
+            Identificacion: valorCampo('vis-identificacion'),
+            Motivo: valorCampo('vis-motivo'),
+            Telefono: tel
+          });
+          showToast('Visitante ' + visitante.Nombre + ' agregado al catálogo.', 'success');
+          if ($('#vis-vehiculo').checked) {
+            try {
+              await runGas('guardarCatalogo', 'vehiculos', {
+                Placa: placa,
+                Marca: valorCampo('vis-marca'),
+                Modelo: valorCampo('vis-modelo'),
+                Color: valorCampo('vis-color'),
+                TipoTitular: 'Visitante',
+                TitularID: visitante.ID
+              });
+              showToast('Placa ' + placa + ' vinculada al visitante en el catálogo de vehículos.', 'success');
+            } catch (e) {
+              showToast('El visitante se guardó, pero no se pudo registrar el vehículo: ' + e.message, 'warning', 8000);
+            }
+          }
+          OP.catalogoGuardadoPara = placa;
+          actualizarFormVisitante();
+        }
+      }
+
+      const mov = await runGas('registrarEntrada', payload);
+      showToast('Entrada registrada: ' + mov.Placa + ' · ' + mov.CasetaEntrada + ' · ' + horaDe(mov.FechaHoraEntrada) +
+        (mov.registrado ? '' : ' (vehículo no registrado)'), 'success');
+      limpiarFormularioEntrada();
+      cargarDentro(true);
+    });
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    OP.submitting = false;
+    updateEntradaButton();
+  }
+}
+
+/* ---------- Registro de salida ---------- */
+async function registrarSalida(movimientoId, btn) {
+  if (!hasPerm('operacion')) { showToast('Su rol no permite registrar salidas.', 'warning'); return false; }
+  if (!STATE.casetaId) {
+    showToast('Seleccione la caseta activa antes de registrar la salida.', 'warning');
+    const sel = esEscritorio() ? $('#op-caseta') : $('#header-caseta');
+    if (sel) sel.focus();
+    return false;
+  }
+  if (!movimientoId || OP.salidasPendientes[movimientoId]) return false;
+  OP.salidasPendientes[movimientoId] = true;
+  try {
+    const r = await withBusy(btn, 'Registrando…', () =>
+      runGas('registrarSalida', { movimientoId: movimientoId, casetaId: STATE.casetaId }));
+    if (!r) return false;
+    showToast('Salida registrada: ' + r.Placa + ' · ' + (r.CasetaSalida || casetaNombre(STATE.casetaId)) + ' · ' + horaDe(r.FechaHoraSalida), 'success');
+    STATE.dentro = STATE.dentro.filter(m => String(m.ID) !== String(movimientoId));
+    delete OP.salidasPendientes[movimientoId];
+    renderDentro();
+    renderVehiculo();
+    cargarDentro(true);
+    return true;
+  } catch (e) {
+    showToast(e.message, 'error');
+    delete OP.salidasPendientes[movimientoId];
+    cargarDentro(true);
+    return false;
+  }
+}
+
+/* ---------- Panel "En Campus" ---------- */
+function renderDentroSkeleton() {
+  let html = '';
+  for (let i = 0; i < 4; i++) {
+    html += '<div class="p-3 flex items-center gap-3" aria-hidden="true">' +
+      '<div class="skeleton h-8 w-24"></div>' +
+      '<div class="flex-1 space-y-2"><div class="skeleton h-3.5 w-3/4"></div><div class="skeleton h-3 w-1/2"></div></div>' +
+      '<div class="skeleton h-9 w-20"></div></div>';
+  }
+  $('#dentro-list').innerHTML = html;
+}
+
+async function cargarDentro(silent) {
+  if (OP.dentroLoading) return;
+  OP.dentroLoading = true;
+  if (!silent || !STATE.dentroLoaded) renderDentroSkeleton();
+  const refreshBtn = $('#btn-dentro-refresh');
+  refreshBtn.disabled = true;
+  try {
+    const data = await runGas('vehiculosDentro');
+    STATE.dentro = Array.isArray(data) ? data : [];
+    STATE.dentroLoaded = true;
+    OP.dentroError = '';
+    $('#dentro-updated').textContent = 'Actualizado ' + horaActual() + ' · se actualiza cada minuto';
+  } catch (e) {
+    OP.dentroError = e.message;
+    if (!silent) showToast('No se pudo cargar la lista de vehículos en campus: ' + e.message, 'error');
+  } finally {
+    OP.dentroLoading = false;
+    refreshBtn.disabled = false;
+    renderDentro();
+    renderVehiculo();
+  }
+}
+
+function filtrarDentro() {
+  const texto = valorCampo('dentro-search');
+  const placaBuscada = normalizarPlaca(texto);
+  const textoLower = texto.toLowerCase();
+  const caseta = valorCampo('dentro-filter');
+  return STATE.dentro.filter(m => {
+    if (caseta && String(m.CasetaEntradaID) !== caseta) return false;
+    if (!texto) return true;
+    return (placaBuscada && normalizarPlaca(m.Placa).indexOf(placaBuscada) !== -1) ||
+      String(m.TitularNombre || '').toLowerCase().indexOf(textoLower) !== -1;
+  });
+}
+
+function filaDentroHtml(m) {
+  const alerta = m.alerta === true;
+  const puedeSalida = hasPerm('operacion');
+  const pendiente = !!OP.salidasPendientes[m.ID];
+  const sub = [m.TipoUsuario, m.CasetaEntrada].filter(Boolean).join(' · ');
+  return '' +
+    '<article class="p-3 flex items-center gap-3 ' + (alerta ? 'row-alerta' : '') + '">' +
+      '<div class="flex-1 min-w-0">' +
+        '<div class="flex items-center gap-2 flex-wrap">' +
+          '<span class="plate plate-solid">' + escapeHtml(m.Placa) + '</span>' +
+          (alerta
+            ? '<span class="badge badge-alerta"><i data-lucide="triangle-alert"></i>Alerta ≥12 h</span>'
+            : '<span class="badge badge-dentro">Dentro</span>') +
+        '</div>' +
+        '<p class="mt-1.5 text-sm font-semibold text-ink truncate">' + escapeHtml(m.TitularNombre || 'Sin titular registrado') + '</p>' +
+        '<p class="text-xs text-ink-muted truncate">' + escapeHtml(sub) + '</p>' +
+        '<p class="mt-1 mono text-[11px] font-semibold flex items-center gap-1 ' + (alerta ? 'text-bad' : 'text-navy') + '">' +
+          '<i data-lucide="clock" class="w-3.5 h-3.5"></i>' + escapeHtml(horaDe(m.FechaHoraEntrada)) +
+          ' · ' + escapeHtml(formatHoras(m.horasDentro)) + '</p>' +
+      '</div>' +
+      (puedeSalida
+        ? '<button type="button" class="btn ' + (alerta ? 'btn-danger' : 'btn-neutral') + ' btn-sm shrink-0 !min-h-[44px]" data-action="salida" data-id="' +
+          escapeHtml(m.ID) + '"' + (pendiente ? ' disabled' : '') + ' aria-label="Registrar salida de ' + escapeHtml(m.Placa) + '">' +
+          '<i data-lucide="log-out" class="w-4 h-4"></i><span><span class="hidden sm:inline">Registrar </span>Salida</span></button>'
+        : '') +
+    '</article>';
+}
+
+function renderDentro() {
+  const list = $('#dentro-list');
+  if (!list) return;
+  const filas = filtrarDentro();
+  const alertas = filas.filter(m => m.alerta === true).length;
+
+  $('#dentro-count').textContent = String(filas.length);
+  const alertBadge = $('#dentro-alert-count');
+  alertBadge.hidden = !alertas;
+  alertBadge.textContent = alertas + (alertas === 1 ? ' alerta' : ' alertas');
+
+  if (OP.dentroError && !STATE.dentroLoaded) {
+    list.innerHTML = '<div class="p-6 text-center">' +
+      '<i data-lucide="circle-alert" class="w-8 h-8 mx-auto text-bad"></i>' +
+      '<p class="mt-2 text-sm font-semibold text-ink">' + escapeHtml(OP.dentroError) + '</p>' +
+      '<button type="button" class="btn btn-neutral btn-sm mt-3" data-action="reintentar-dentro">' +
+      '<i data-lucide="refresh-cw" class="w-4 h-4"></i>Reintentar</button></div>';
+  } else if (!filas.length) {
+    const hayFiltro = valorCampo('dentro-search') || valorCampo('dentro-filter');
+    list.innerHTML = '<div class="p-6 text-center text-ink-muted">' +
+      '<i data-lucide="car-front" class="w-8 h-8 mx-auto text-line"></i>' +
+      '<p class="mt-2 text-sm font-semibold">' + (hayFiltro ? 'Sin coincidencias con el filtro aplicado.' : 'No hay vehículos dentro del campus.') + '</p></div>';
+  } else {
+    list.innerHTML = filas.map(filaDentroHtml).join('');
+  }
+  refreshIcons();
+}
+
+/* ---------- Cierre de turno ---------- */
+function abrirCierreTurno() {
+  if (!STATE.casetaId) {
+    showToast('Seleccione la caseta activa para generar el cierre de turno.', 'warning');
+    return;
+  }
+  $('#cierre-caseta-nombre').textContent = casetaNombre(STATE.casetaId);
+  $('#cierre-obs').value = '';
+  $('#cierre-step-form').hidden = false;
+  $('#cierre-step-result').hidden = true;
+  openModal('modal-cierre');
+}
+
+async function confirmarCierreTurno() {
+  const btn = $('#btn-cierre-confirmar');
+  try {
+    const r = await withBusy(btn, 'Generando…', () =>
+      runGas('cierreTurno', { casetaId: STATE.casetaId, observaciones: valorCampo('cierre-obs') }));
+    if (!r) return;
+    $('#cierre-result').innerHTML = resumenCierreHtml(r);
+    $('#cierre-step-form').hidden = true;
+    $('#cierre-step-result').hidden = false;
+    refreshIcons();
+    showToast('Cierre de turno registrado en bitácora.', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function resumenCierreHtml(r) {
+  const pendientes = Array.isArray(r.pendientes) ? r.pendientes : [];
+  const tile = (etiqueta, valor, clase) =>
+    '<div class="card p-3 text-center ' + (clase || '') + '"><p class="field-label !mb-1">' + etiqueta + '</p>' +
+    '<p class="mono text-2xl font-bold">' + escapeHtml(valor) + '</p></div>';
+  let html = '' +
+    '<div class="flex items-center gap-2 text-ok font-bold text-sm"><i data-lucide="circle-check" class="w-5 h-5"></i>Cierre registrado · ' + escapeHtml(horaActual()) + '</div>' +
+    '<p class="mt-1 font-display font-bold text-navy text-lg">' + escapeHtml(r.caseta || '') + '</p>' +
+    '<div class="mt-3 grid grid-cols-2 gap-2">' +
+      tile('Siguen dentro', r.totalPendientes || 0, 'text-navy') +
+      tile('Alertas ≥12 h', r.totalAlertas || 0, (r.totalAlertas ? 'state-bad !border-2' : 'text-navy')) +
+    '</div>';
+  if (!pendientes.length) {
+    html += '<div class="state-block state-ok mt-3 text-sm font-semibold flex items-center gap-2">' +
+      '<i data-lucide="circle-check" class="w-5 h-5"></i>Sin vehículos pendientes de salida para esta caseta.</div>';
+  } else {
+    html += '<p class="field-label mt-4">Vehículos pendientes de salida</p>' +
+      '<div class="card divider-y max-h-[40vh] overflow-y-auto scroll-thin">' +
+      pendientes.map(p =>
+        '<div class="p-2.5 flex items-center gap-3 ' + (p.alerta ? 'row-alerta' : '') + '">' +
+          '<span class="plate">' + escapeHtml(p.Placa) + '</span>' +
+          '<div class="flex-1 min-w-0"><p class="text-sm font-semibold truncate">' + escapeHtml(p.TitularNombre || 'Sin titular registrado') + '</p>' +
+          '<p class="mono text-[11px] text-ink-muted">' + escapeHtml(fechaHoraCorta(p.FechaHoraEntrada)) + ' · ' + escapeHtml(formatHoras(p.horasDentro)) + '</p></div>' +
+          (p.alerta ? '<span class="badge badge-alerta">Alerta</span>' : '<span class="badge badge-dentro">Dentro</span>') +
+        '</div>').join('') +
+      '</div>';
+  }
+  return html;
+}
+
+/* =====================================================================
+ * Lector QR (html5-qrcode) con respaldo por foto
+ * ===================================================================== */
+function setQrStatus(msg, tipo) {
+  const el = $('#qr-status');
+  const icon = tipo === 'warn' ? 'triangle-alert' : tipo === 'busy' ? 'loader-circle' : 'info';
+  el.className = 'mt-3 text-sm font-semibold flex items-start gap-2 ' + (tipo === 'warn' ? 'text-warn' : 'text-navy');
+  el.innerHTML = '<i data-lucide="' + icon + '" class="w-4 h-4 mt-0.5 ' + (tipo === 'busy' ? 'animate-spin' : '') + '"></i><span>' + escapeHtml(msg) + '</span>';
+  refreshIcons();
+}
+
+/** Extrae la placa de un QR: JSON {placa}, URL ?placa=, "PLACA: X", texto con separadores o placa sola. */
+function extraerPlacaDeQR(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return '';
+  try {
+    const o = JSON.parse(t);
+    if (o && typeof o === 'object') {
+      const v = o.placa || o.Placa || o.PLACA;
+      if (v) return normalizarPlaca(v);
+    }
+  } catch (e) { /* no es JSON */ }
+  const url = t.match(/[?&#]placa=([^&#]+)/i);
+  if (url) return normalizarPlaca(decodeURIComponent(url[1]));
+  const etiqueta = t.match(/PLACA\s*[:=]\s*([A-Za-z0-9\- ]{5,12})/i);
+  if (etiqueta) return normalizarPlaca(etiqueta[1]);
+  const tokens = t.split(/[|;,\n\r\t]+/).map(normalizarPlaca).filter(x => REGEX_PLACA.test(x));
+  if (tokens.length) return tokens[0];
+  return normalizarPlaca(t);
+}
+
+function procesarTextoQR(texto) {
+  const placa = extraerPlacaDeQR(texto);
+  if (!REGEX_PLACA.test(placa)) {
+    setQrStatus('El código leído no contiene una placa válida. Intente con otra calcomanía.', 'warn');
+    return false;
+  }
+  closeModal('modal-qr');
+  aplicarPlaca(placa);
+  showToast('QR leído: placa ' + placa, 'success', 2500);
+  return true;
+}
+
+function abrirLectorQR() {
+  $('#btn-qr-retry').hidden = true;
+  openModal('modal-qr');
+  if (typeof window.Html5Qrcode === 'undefined') {
+    setQrStatus('No se pudo cargar el lector QR. Verifique la conexión a internet y vuelva a intentarlo.', 'warn');
+    return;
+  }
+  iniciarCamaraQR();
+}
+
+async function iniciarCamaraQR() {
+  $('#btn-qr-retry').hidden = true;
+  await detenerCamaraQR();
+  if (typeof window.Html5Qrcode === 'undefined') return;
+  setQrStatus('Iniciando cámara…', 'busy');
+  OP.qrProcesando = false;
+  const sc = new Html5Qrcode('qr-reader', { verbose: false });
+  OP.scanner = sc;
+  try {
+    await sc.start(
+      { facingMode: 'environment' },
+      {
+        fps: 10,
+        qrbox: (w, h) => {
+          const s = Math.max(120, Math.floor(Math.min(w, h) * 0.7));
+          return { width: s, height: s };
+        }
+      },
+      texto => {
+        if (OP.qrProcesando) return;
+        OP.qrProcesando = true;
+        if (!procesarTextoQR(texto)) setTimeout(() => { OP.qrProcesando = false; }, 1500);
+      },
+      () => { /* fotogramas sin QR: se ignoran */ }
+    );
+    if ($('#modal-qr').hidden || OP.scanner !== sc) {
+      // El modal se cerró mientras la cámara arrancaba: liberar este lector concreto.
+      try { await sc.stop(); sc.clear(); } catch (err) { /* ya detenido */ }
+      return;
+    }
+    setQrStatus('Apunte la cámara al código QR de la calcomanía del vehículo.', 'info');
+  } catch (e) {
+    if (OP.scanner !== sc) return;
+    await detenerCamaraQR();
+    setQrStatus('La cámara en vivo no está disponible (permiso denegado o bloqueada por el navegador). Use "Leer QR desde foto".', 'warn');
+    $('#btn-qr-retry').hidden = false;
+  }
+}
+
+async function detenerCamaraQR() {
+  const sc = OP.scanner;
+  OP.scanner = null;
+  if (!sc) return;
+  try { if (sc.isScanning) await sc.stop(); } catch (e) { /* ya detenido */ }
+  try { sc.clear(); } catch (e) { /* sin contenido que limpiar */ }
+}
+
+async function leerQRDesdeArchivo(e) {
+  const input = e.target;
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (typeof window.Html5Qrcode === 'undefined') {
+    setQrStatus('No se pudo cargar el lector QR. Verifique la conexión a internet.', 'warn');
+    input.value = '';
+    return;
+  }
+  await detenerCamaraQR();
+  setQrStatus('Analizando imagen…', 'busy');
+  const lector = new Html5Qrcode('qr-file-host', { verbose: false });
+  try {
+    const texto = await lector.scanFile(file, false);
+    procesarTextoQR(texto);
+  } catch (err) {
+    setQrStatus('No se detectó un código QR en la foto. Tome la foto más cerca, enfocada y con buena luz.', 'warn');
+    $('#btn-qr-retry').hidden = false;
+  } finally {
+    try { lector.clear(); } catch (err) { /* sin contenido que limpiar */ }
+    input.value = '';
+  }
+}
+
+/* =====================================================================
+ * Arranque
+ * ===================================================================== */
+function iniciarApp() {
+  refreshIcons();
+  bindModales();
+  bindNavegacion();
+  bindCasetaSelects();
+  initOperacion();
+  iniciarSesion();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciarApp);
+else iniciarApp();
+</script>

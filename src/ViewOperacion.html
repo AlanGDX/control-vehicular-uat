@@ -1,0 +1,258 @@
+<!-- ViewOperacion.html — Vista de operación de caseta: entradas, salidas, vehículos en campus y cierre de turno -->
+<section id="view-operacion" data-view="operacion" hidden aria-label="Operación de caseta">
+
+  <!-- Caseta activa y cierre de turno -->
+  <div class="card p-3 sm:p-4 mb-4 flex flex-col sm:flex-row sm:items-end gap-3">
+    <div class="flex-1 min-w-0">
+      <label for="op-caseta" class="field-label">Caseta activa</label>
+      <select id="op-caseta" class="field font-semibold text-navy" data-caseta-select disabled>
+        <option value="">Cargando casetas…</option>
+      </select>
+      <p id="op-caseta-status" class="mt-1.5 text-xs font-semibold flex items-center gap-1.5 text-ink-muted"></p>
+    </div>
+    <button id="btn-cierre-turno" type="button" class="btn btn-neutral w-full sm:w-auto">
+      <i data-lucide="clipboard-check" class="w-5 h-5"></i>Cierre de Turno
+    </button>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+
+    <!-- ===================== Registro de entrada ===================== -->
+    <section class="card p-4 lg:col-span-3" aria-labelledby="titulo-ingreso">
+      <div class="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-line">
+        <div class="flex items-center gap-2">
+          <i data-lucide="log-in" class="w-5 h-5 text-accent"></i>
+          <h2 id="titulo-ingreso" class="font-display font-bold text-navy uppercase tracking-wide text-[15px]">Ingreso Vehicular</h2>
+        </div>
+        <span class="badge badge-info">Placa / QR</span>
+      </div>
+
+      <!-- Placa + QR -->
+      <label for="placa-input" class="field-label">Placa del vehículo</label>
+      <div class="flex gap-2">
+        <div class="relative flex-1 min-w-0">
+          <div class="plate-input-wrap">
+            <span class="plate-prefix">MX</span>
+            <input id="placa-input" class="plate-input" type="text" maxlength="12" placeholder="ABC1234"
+                   autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text"
+                   role="combobox" aria-autocomplete="list" aria-controls="ac-list" aria-expanded="false">
+            <button id="btn-placa-clear" type="button" class="w-10 h-10 flex items-center justify-center text-ink-muted hover:text-navy" aria-label="Limpiar placa" hidden>
+              <i data-lucide="delete" class="w-5 h-5"></i>
+            </button>
+          </div>
+          <div id="ac-list" class="ac-list card scroll-thin divider-y" role="listbox" aria-label="Coincidencias de placa" hidden></div>
+        </div>
+        <button id="btn-scan-qr" type="button" class="btn btn-secondary shrink-0 !min-h-[60px] px-3 sm:px-4" aria-label="Escanear QR">
+          <i data-lucide="scan-line" class="w-6 h-6"></i>
+          <span class="sm:hidden">QR</span><span class="hidden sm:inline">Escanear QR</span>
+        </button>
+      </div>
+      <p id="placa-hint" class="mt-1.5 mono text-[11px] text-ink-muted"></p>
+
+      <!-- Consultando catálogo -->
+      <div id="veh-skeleton" class="card p-4 mt-4" aria-hidden="true" hidden>
+        <div class="flex items-center justify-between">
+          <div class="skeleton h-9 w-36"></div>
+          <div class="skeleton h-6 w-24"></div>
+        </div>
+        <div class="skeleton h-5 w-2/3 mt-4"></div>
+        <div class="grid grid-cols-2 gap-3 mt-4">
+          <div class="skeleton h-9"></div><div class="skeleton h-9"></div>
+          <div class="skeleton h-9"></div><div class="skeleton h-9"></div>
+        </div>
+      </div>
+
+      <!-- Vehículo detectado (se llena desde ClientJS) -->
+      <div id="veh-card" class="card p-4 mt-4" aria-live="polite" hidden></div>
+
+      <!-- Vehículo ya dentro del campus -->
+      <div id="ya-dentro" class="state-block state-warn mt-4" hidden>
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div class="flex items-start gap-2 flex-1 min-w-0">
+            <i data-lucide="triangle-alert" class="w-5 h-5 mt-0.5"></i>
+            <div class="min-w-0">
+              <p class="font-bold text-sm">Este vehículo ya está dentro del campus</p>
+              <p id="ya-dentro-detalle" class="text-xs text-ink mt-0.5"></p>
+            </div>
+          </div>
+          <button id="btn-ya-dentro-salida" type="button" class="btn btn-secondary btn-sm w-full sm:w-auto">
+            <i data-lucide="log-out" class="w-4 h-4"></i>Registrar Salida
+          </button>
+        </div>
+      </div>
+
+      <!-- Placa no registrada: formulario rápido de visitante -->
+      <div id="visitor-form" class="mt-4 card overflow-hidden" hidden>
+        <div class="px-4 py-3 bg-warn-bg border-b border-warn-bd flex items-start gap-2 text-warn">
+          <i data-lucide="user-plus" class="w-5 h-5 mt-0.5"></i>
+          <div>
+            <p class="font-bold text-sm">Placa no registrada en el catálogo</p>
+            <p class="text-xs text-ink">Se registrará el ingreso con los datos capturados.</p>
+            <p id="vis-lookup-error" class="text-xs text-bad font-semibold mt-1" hidden></p>
+          </div>
+        </div>
+        <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="vis-nombre" class="field-label">Nombre del conductor</label>
+            <input id="vis-nombre" class="field" type="text" maxlength="120" placeholder="Nombre completo" autocomplete="off">
+          </div>
+          <div>
+            <label for="vis-tipo" class="field-label">Tipo de usuario</label>
+            <select id="vis-tipo" class="field">
+              <option value="Visitante" selected>Visitante</option>
+              <option value="Estudiante">Estudiante</option>
+              <option value="Docente">Docente</option>
+              <option value="Administrativo">Administrativo</option>
+            </select>
+          </div>
+
+          <div id="vis-catalogo-wrap" class="sm:col-span-2" hidden>
+            <label class="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+              <input id="vis-catalogo" type="checkbox" class="w-5 h-5 accent-[#0F2B46]">
+              <span class="text-sm font-semibold text-ink">Registrar también en el catálogo de visitantes</span>
+            </label>
+            <div id="vis-catalogo-fields" class="mt-2 p-3 rounded border border-line bg-mist grid grid-cols-1 sm:grid-cols-2 gap-3" hidden>
+              <div>
+                <label for="vis-identificacion" class="field-label">Identificación *</label>
+                <input id="vis-identificacion" class="field" type="text" maxlength="60" placeholder="INE, licencia, pasaporte…" autocomplete="off">
+              </div>
+              <div>
+                <label for="vis-telefono" class="field-label">Teléfono (10 dígitos)</label>
+                <input id="vis-telefono" class="field mono" type="tel" inputmode="numeric" maxlength="14" placeholder="8341234567" autocomplete="off">
+              </div>
+              <div class="sm:col-span-2">
+                <label for="vis-motivo" class="field-label">Motivo de la visita</label>
+                <input id="vis-motivo" class="field" type="text" maxlength="160" placeholder="Trámite, proveedor, evento…" autocomplete="off">
+              </div>
+              <label class="sm:col-span-2 flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+                <input id="vis-vehiculo" type="checkbox" class="w-5 h-5 accent-[#0F2B46]">
+                <span class="text-sm font-semibold text-ink">Vincular esta placa al visitante en el catálogo de vehículos</span>
+              </label>
+              <div id="vis-vehiculo-fields" class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3" hidden>
+                <div>
+                  <label for="vis-marca" class="field-label">Marca</label>
+                  <input id="vis-marca" class="field" type="text" maxlength="40" autocomplete="off">
+                </div>
+                <div>
+                  <label for="vis-modelo" class="field-label">Modelo</label>
+                  <input id="vis-modelo" class="field" type="text" maxlength="40" autocomplete="off">
+                </div>
+                <div>
+                  <label for="vis-color" class="field-label">Color</label>
+                  <input id="vis-color" class="field" type="text" maxlength="30" autocomplete="off">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Observaciones -->
+      <div class="mt-4">
+        <label for="entrada-obs" class="field-label">Observaciones (opcional)</label>
+        <input id="entrada-obs" class="field" type="text" maxlength="250" placeholder="Ej. acompañante sin credencial, cajuela inspeccionada…" autocomplete="off">
+      </div>
+
+      <!-- Acción principal -->
+      <button id="btn-registrar-entrada" type="button" class="btn btn-primary w-full mt-4 uppercase" disabled>
+        <i data-lucide="log-in" class="w-6 h-6"></i><span>Registrar Entrada</span>
+      </button>
+      <p id="entrada-hint" class="mt-2 text-xs text-ink-muted text-center min-h-[16px]"></p>
+    </section>
+
+    <!-- ===================== Vehículos en campus ===================== -->
+    <section class="card lg:col-span-2 flex flex-col lg:sticky lg:top-20" aria-labelledby="titulo-campus">
+      <div class="p-4 border-b border-line">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0 flex-wrap">
+            <h2 id="titulo-campus" class="font-display font-bold text-navy text-[17px]">En Campus</h2>
+            <span id="dentro-count" class="badge badge-count">0</span>
+            <span id="dentro-alert-count" class="badge badge-alerta" hidden></span>
+          </div>
+          <button id="btn-dentro-refresh" type="button" class="btn btn-neutral btn-icon !min-h-[40px] !w-10" aria-label="Actualizar lista de vehículos en campus">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-2">
+          <div class="relative">
+            <label for="dentro-search" class="sr-only">Buscar placa o titular</label>
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none"></i>
+            <input id="dentro-search" class="field !pl-9 mono uppercase" type="search" placeholder="Buscar placa…" autocomplete="off" spellcheck="false">
+          </div>
+          <div>
+            <label for="dentro-filter" class="sr-only">Filtrar por caseta de entrada</label>
+            <select id="dentro-filter" class="field" data-caseta-filter>
+              <option value="">Todas las casetas</option>
+            </select>
+          </div>
+        </div>
+        <p id="dentro-updated" class="mt-2 mono text-[11px] text-ink-faint"></p>
+      </div>
+      <div id="dentro-list" class="divider-y max-h-[70vh] lg:max-h-[calc(100vh-19rem)] overflow-y-auto scroll-thin" aria-live="polite"></div>
+    </section>
+  </div>
+
+  <!-- ===================== Modal: lector QR ===================== -->
+  <div id="modal-qr" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <div class="flex items-center gap-2">
+          <i data-lucide="scan-line" class="w-5 h-5"></i>
+          <h3 id="modal-qr-title" class="font-display font-bold">Escanear QR del vehículo</h3>
+        </div>
+        <button type="button" class="w-10 h-10 flex items-center justify-center" data-close-modal="modal-qr" aria-label="Cerrar lector">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-4">
+        <div id="qr-reader"></div>
+        <p id="qr-status" class="mt-3 text-sm font-semibold text-navy flex items-start gap-2" role="status"></p>
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label for="qr-file-input" class="btn btn-secondary cursor-pointer">
+            <i data-lucide="camera" class="w-5 h-5"></i>Leer QR desde foto
+          </label>
+          <button id="btn-qr-retry" type="button" class="btn btn-neutral" hidden>
+            <i data-lucide="refresh-cw" class="w-5 h-5"></i>Reintentar cámara
+          </button>
+          <button type="button" class="btn btn-neutral" data-close-modal="modal-qr">Cancelar</button>
+        </div>
+        <input id="qr-file-input" type="file" accept="image/*" capture="environment" class="sr-only">
+        <p class="mt-3 text-xs text-ink-muted">Si el navegador bloquea la cámara en vivo, use "Leer QR desde foto" para abrir la cámara nativa del dispositivo.</p>
+        <div id="qr-file-host" class="qr-file-host" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== Modal: cierre de turno ===================== -->
+  <div id="modal-cierre" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-cierre-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <div class="flex items-center gap-2">
+          <i data-lucide="clipboard-check" class="w-5 h-5"></i>
+          <h3 id="modal-cierre-title" class="font-display font-bold">Cierre de Turno</h3>
+        </div>
+        <button type="button" class="w-10 h-10 flex items-center justify-center" data-close-modal="modal-cierre" aria-label="Cerrar">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div id="cierre-step-form" class="p-4">
+        <p class="text-sm text-ink">Se generará el resumen de vehículos que siguen dentro y que ingresaron por:</p>
+        <p id="cierre-caseta-nombre" class="mt-2 font-display font-bold text-navy text-lg"></p>
+        <label for="cierre-obs" class="field-label mt-4">Observaciones de entrega (opcional)</label>
+        <textarea id="cierre-obs" class="field" rows="3" maxlength="400" placeholder="Novedades del turno, incidencias, pendientes…"></textarea>
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button type="button" class="btn btn-neutral" data-close-modal="modal-cierre">Cancelar</button>
+          <button id="btn-cierre-confirmar" type="button" class="btn btn-secondary">
+            <i data-lucide="clipboard-check" class="w-5 h-5"></i>Generar cierre
+          </button>
+        </div>
+      </div>
+
+      <div id="cierre-step-result" class="p-4" hidden>
+        <div id="cierre-result"></div>
+        <button type="button" class="btn btn-secondary w-full mt-4" data-close-modal="modal-cierre">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</section>
