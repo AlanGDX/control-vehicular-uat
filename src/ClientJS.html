@@ -334,7 +334,6 @@ function aplicarPermisos() {
   $$('[data-perm]').forEach(el => { el.hidden = !hasPerm(el.getAttribute('data-perm')); });
   const visibles = $$('#nav-mobile-grid [data-nav]').filter(el => !el.hidden).length;
   $('#nav-mobile-grid').style.gridTemplateColumns = 'repeat(' + Math.max(1, visibles) + ', minmax(0, 1fr))';
-  $('#header-caseta-wrap').hidden = !hasPerm('operacion');
   $$('[data-view]').forEach(sec => {
     const perm = VIEW_PERMS[sec.getAttribute('data-view')];
     if (!perm || !hasPerm(perm)) sec.hidden = true;
@@ -883,7 +882,7 @@ async function registrarSalida(movimientoId, btn) {
   if (!hasPerm('operacion')) { showToast('Su rol no permite registrar salidas.', 'warning'); return false; }
   if (!STATE.casetaId) {
     showToast('Seleccione la caseta activa antes de registrar la salida.', 'warning');
-    const sel = esEscritorio() ? $('#op-caseta') : $('#header-caseta');
+    const sel = $('#op-caseta');
     if (sel) sel.focus();
     return false;
   }
