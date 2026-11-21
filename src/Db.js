@@ -89,5 +89,12 @@ function limpiar_(o) {
 function conBloqueo_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
-  try { return fn(); } finally { lock.releaseLock(); }
+  try {
+    return fn();
+  } finally {
+    // Escribe los cambios pendientes ANTES de soltar el bloqueo; si no, otra
+    // petición simultánea puede leer datos viejos (p. ej. ver DENTRO un auto que ya salió).
+    SpreadsheetApp.flush();
+    lock.releaseLock();
+  }
 }
